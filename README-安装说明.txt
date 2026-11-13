@@ -1,17 +1,16 @@
-AFE Charge · iPhone 测试版原型
+AFE Charge · v3 iPhone PWA demo
 
-当前可体验
-- 查找附近充电站、查看枪状态和示例价格
-- 选择充电限额并浏览模拟充电流程
-- 记录一辆测试车辆（只保存在当前设备）
-- 选择钱包优先或绑定卡自动扣款偏好（仅模拟）
-- 查看含 VAT 拆分的示例收据
+Live HTTPS demo
+https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v3
 
-安装到 iPhone
-1. 需要先把本文件夹部署到 HTTPS 网站。
-2. 在 iPhone 的 Safari 打开部署网址。
-3. 点“分享”→“添加到主屏幕”，再从主屏幕打开 AFE Charge。
+Install or refresh on iPhone
+1. Open the link above in Safari while online.
+2. Tap Share → Add to Home Screen.
+3. For an existing home-screen app, open the v3 link in Safari once, then close and reopen the app. If the old cached screen remains, remove the old icon and add it again.
 
-测试提醒
-这是交互原型，不连接真实账户、充电桩、OCPP、银行卡或支付服务。卡号末四位、余额、车辆和充电记录均为示例；请勿输入真实个人或支付资料。公开测试站点需要将本包发布后才会更新。
+Demo flow
+Find a station → choose a connector → set amount/energy/battery limit → choose card or wallet → start → adjust limit or stop → review payment reconciliation → history → simulated invoice.
+
+Demo limits
+This is a static PWA with simulated station/session/payment data. It does not connect to chargers, vehicles, a backend or a payment provider. Card authorisation and wallet balances are simulated and no money is charged. History and preferences are stored locally in this browser/device.
 
