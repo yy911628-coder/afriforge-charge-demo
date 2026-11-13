@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "Afriforge Charge",
-  "short_name": "Afriforge",
+  "name": "AFE Charge",
+  "short_name": "AFE",
   "description": "Find a charger, manage a demo charging session, and view a VAT-inclusive receipt.",
   "start_url": "./index.html",
   "scope": "./",
