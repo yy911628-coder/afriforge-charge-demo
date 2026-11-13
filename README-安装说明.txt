@@ -1,16 +1,17 @@
-Afriforge Charge iPhone 网页 App（原型版）
+AFE Charge · iPhone 测试版原型
 
-内容
-- index.html：可交互的手机端原型
-- manifest.webmanifest：网页 App 安装信息
-- service-worker.js：基础离线缓存
-- apple-touch-icon.png、icon-192.png、icon-512.png、icon-maskable-512.png：主屏幕图标
+当前可体验
+- 查找附近充电站、查看枪状态和示例价格
+- 选择充电限额并浏览模拟充电流程
+- 记录一辆测试车辆（只保存在当前设备）
+- 选择钱包优先或绑定卡自动扣款偏好（仅模拟）
+- 查看含 VAT 拆分的示例收据
 
 安装到 iPhone
-1. 用 iPhone Safari 打开 https://yy911628-coder.github.io/afriforge-charge-demo/ 。
-2. 点“分享”→“添加到主屏幕”；如出现“作为网页 App 打开”，将其打开，再点“添加”。
-3. 从主屏幕图标打开原型。首次联网打开后，静态页面和图标会写入缓存，可离线再次打开。
+1. 需要先把本文件夹部署到 HTTPS 网站。
+2. 在 iPhone 的 Safari 打开部署网址。
+3. 点“分享”→“添加到主屏幕”，再从主屏幕打开 AFE Charge。
 
-注意
-- 当前是交互式设计原型，不包含真实用户账户、OCPP/充电桩连接、订单、支付、邮件发票或后台服务；示例数据仅用于演示。
-- 该页面公开部署于 GitHub Pages，任何拿到网址的人都可能访问。不要在此原型中输入真实支付或个人信息。
+测试提醒
+这是交互原型，不连接真实账户、充电桩、OCPP、银行卡或支付服务。卡号末四位、余额、车辆和充电记录均为示例；请勿输入真实个人或支付资料。公开测试站点需要将本包发布后才会更新。
+
