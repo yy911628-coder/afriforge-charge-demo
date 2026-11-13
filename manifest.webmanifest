@@ -2,8 +2,8 @@
   "id": "./",
   "name": "AFE Charge",
   "short_name": "AFE",
-  "description": "Find a charger, manage a demo charging session, and view a VAT-inclusive receipt.",
-  "start_url": "./index.html",
+  "description": "Find a charger, simulate a charging session, and review a demo receipt.",
+  "start_url": "./?v=afe-v3",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
@@ -30,3 +30,4 @@
     }
   ]
 }
+
