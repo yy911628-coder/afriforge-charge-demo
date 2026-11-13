@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Afriforge Charge</title>
+<title>AFE Charge · Test build</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <meta name="theme-color" content="#166b4b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Afriforge Charge">
+<meta name="apple-mobile-web-app-title" content="AFE Charge">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
 
@@ -37,12 +37,13 @@
   .page{min-height:0}
   .maparea{min-height:0}
 }
+.formfield{display:block;margin:16px 0}.formfield span{display:block;font-size:10px;font-weight:700;color:#526158;margin-bottom:7px}.formfield input{width:100%;height:48px;border:1px solid var(--line);border-radius:13px;background:#fff;padding:0 13px;font:500 13px 'DM Sans',sans-serif;color:var(--ink)}.setting-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0}.test-banner{margin:0 17px 9px;padding:8px 10px;border-radius:10px;background:#fff5e4;color:#82612b;font-size:9px;line-height:1.4}.balance-card{background:#174d39;color:white;border-radius:18px;padding:18px;margin:8px 0 16px}.balance-card small{color:#c6d8cd;font-size:10px}.balance-card strong{display:block;font:800 28px Manrope;margin:5px 0 12px}
 </style>
 </head>
 <body>
 <main class="layout">
   <section class="intro">
-    <div class="brand"><span class="brand-mark">ϟ</span> AFRIFORGE CHARGE</div>
+    <div class="brand"><span class="brand-mark">ϟ</span> AFE CHARGE</div>
     <div class="eyebrow">Mobile app concept · MVP</div>
     <h1>Charge with<br>confidence.</h1>
     <p>A clear, low-friction charging journey for South African EV drivers: find an available plug, see the VAT-inclusive price, start a session, and get a tax invoice.</p>
@@ -87,13 +88,12 @@
 
     <section class="page" id="setup">
       <header class="topbar"><button class="backtext" onclick="go('station')">‹</button><div><h2>Set up charging</h2><div class="tiny">Oxford Road Hub · Plug 01</div></div><span class="tag">STEP 1 OF 2</span></header>
-      <div class="setup-body"><div class="progress"><i class="on"></i><i></i><i></i></div>
+      <div class="setup-body"><div class="test-banner" style="margin:0 0 9px">DEMO · No real charging or payment is connected yet.</div><div class="progress"><i class="on"></i><i></i><i></i></div>
         <div style="background:#eff5ef;border-radius:14px;padding:12px 13px;display:flex;justify-content:space-between;align-items:center"><div><b style="font:700 12px Manrope">CCS2 · DC fast</b><div class="muted">Up to 150 kW · Available now</div></div><span class="tag">R 6.50/kWh</span></div>
         <span class="label">STOP CHARGING WHEN I REACH</span><div class="choice-row"><button class="choice active" onclick="selectChoice(this)"><strong>80%</strong>Battery</button><button class="choice" onclick="selectChoice(this)"><strong>R 300</strong>Amount</button><button class="choice" onclick="selectChoice(this)"><strong>25 kWh</strong>Energy</button></div>
         <span class="label">CHARGE LIMIT</span><div class="amount"><span id="limitValue">80 <small>% battery</small></span><span style="color:#829087">− &nbsp;&nbsp; +</span></div>
-        <span class="label">PAYMENT METHOD</span><label class="method"><span class="method-icon">VISA</span><span style="flex:1">••••  4821 <small style="display:block;color:#859188;margin-top:3px">Default card</small></span><input type="radio" name="pay" checked></label>
-        <label class="method"><span class="method-icon">EFT</span><span style="flex:1">Instant EFT</span><input type="radio" name="pay"></label>
-        <label class="method"><span class="method-icon">S</span><span style="flex:1">SnapScan / Zapper</span><input type="radio" name="pay"></label>
+        <span class="label">PAYMENT METHOD</span><label class="method"><span class="method-icon">VISA</span><span style="flex:1">•••• 4821 <small style="display:block;color:#859188;margin-top:3px">Demo card · automatic charge</small></span><input type="radio" name="pay" value="card" checked onchange="savePayment('card')"></label>
+        <label class="method"><span class="method-icon">R</span><span style="flex:1">Wallet first <small style="display:block;color:#859188;margin-top:3px">Wallet balance, then card if needed</small></span><input type="radio" name="pay" value="wallet" onchange="savePayment('wallet')"></label>
         <div class="estimate"><div><span>Estimated total</span><b>~ R 280.00</b></div><div><span>Includes 15% VAT</span><span>R 36.52</span></div><div><span>Estimated time</span><span>~ 25 min</span></div></div>
         <div class="notice">Your final amount is based on the charger’s meter reading. We’ll show Subtotal, VAT and Total on your receipt.</div>
       </div><div class="sticky"><button class="primary" onclick="go('live')">Authorise & start charging&nbsp; →</button></div>
@@ -116,7 +116,7 @@
         <div class="receipt-card"><h4>Charging summary</h4><div class="billrow"><span>Energy delivered</span><b>25.0 kWh</b></div><div class="billrow"><span>Connector</span><b>DC fast · CCS2 · Plug 01</b></div><div class="billrow"><span>Rate</span><b>R 6.50 / kWh</b></div></div>
         <div class="receipt-card"><h4>Payment breakdown</h4><div class="billrow"><span>Subtotal</span><b>R 141.30</b></div><div class="billrow"><span>VAT (15%)</span><b>R 21.20</b></div><div class="billrow total"><span>Total paid</span><b>R 162.50</b></div><div class="billrow"><span>Paid with</span><b>Visa •••• 4821</b></div></div>
         <div class="invoice"><span>Tax Invoice · AF-2026-004281<br><small style="color:#849188">Sent to alex@example.com</small></span><b onclick="alert('Invoice PDF ready to download')" style="cursor:pointer">Download ↓</b></div>
-        <p class="footer-note">VAT invoice · Afriforge Charge (Pty) Ltd · VAT 15%</p>
+        <p class="footer-note">VAT invoice preview · AFE Charge · VAT 15%</p>
       </div><div class="sticky"><button class="primary" onclick="go('find')">Done</button></div>
     </section>
 
@@ -125,7 +125,8 @@
       <div class="profile-body"><div class="profile-card"><div class="avatar">AM</div><div><strong>Alex Morgan</strong><small>alex@example.com</small></div><span style="margin-left:auto;color:#d6f36a">›</span></div>
         <div class="row" style="margin-bottom:8px"><b style="font:700 12px Manrope">Your charging</b></div>
         <div class="menuitem" onclick="go('receipt')"><span><i class="menuicon">▤</i>Charge history</span><em>›</em></div>
-        <div class="menuitem"><span><i class="menuicon">▣</i>Payment methods</span><em>›</em></div>
+        <div class="menuitem" onclick="go('payments')"><span><i class="menuicon">▣</i>Payment & wallet</span><em>›</em></div>
+        <div class="menuitem" onclick="go('vehicles')"><span><i class="menuicon">🚘</i>My vehicles</span><em>›</em></div>
         <div class="menuitem"><span><i class="menuicon">⌖</i>Saved stations</span><em>›</em></div>
         <div class="row" style="margin:24px 0 8px"><b style="font:700 12px Manrope">Privacy & support</b></div>
         <div class="menuitem"><span><i class="menuicon">↧</i>Export my data</span><em>›</em></div>
@@ -133,8 +134,18 @@
         <div class="menuitem"><span><i class="menuicon">✉</i>Contact Information Officer</span><em>›</em></div>
         <div class="menuitem"><span><i class="menuicon">◉</i>WhatsApp support</span><em>↗</em></div>
         <div class="menuitem" style="color:#a64439"><span><i class="menuicon" style="background:#fbefed">⌫</i>Delete account</span><em>›</em></div>
-        <p class="footer-note">Afriforge Charge · Version 1.0 · SAST (UTC+2)</p>
+        <p class="footer-note">AFE Charge · Test build · SAST (UTC+2)</p>
       </div><nav class="nav"><button onclick="go('find')"><span>⌖</span>Find</button><button class="scan" onclick="openStation()"><span>▦</span>Scan</button><button onclick="go('receipt')"><span>▤</span>Activity</button><button class="active" onclick="go('profile')"><span>◉</span>Profile</button></nav>
+    </section>
+    <section class="page" id="vehicles">
+      <header class="topbar"><button class="backtext" onclick="go('profile')">‹</button><div><div class="tiny">YOUR ACCOUNT</div><h2>My vehicles</h2></div><span class="tag">DEMO</span></header>
+      <div class="profile-body"><div class="test-banner">Prototype only · Vehicle details stay on this device. Do not enter sensitive personal data.</div><div class="setting-card"><div class="row"><b>Default vehicle</b><span class="tag">SELECTED</span></div><div style="font:800 21px Manrope;letter-spacing:.08em;margin:12px 0" id="vehiclePlateDisplay">Add your vehicle</div><div class="muted" id="vehicleNameDisplay">Your vehicle helps identify your charging sessions.</div></div><label class="formfield"><span>Number plate</span><input id="vehiclePlate" placeholder="e.g. CA 123-456" maxlength="14" autocomplete="off"></label><label class="formfield"><span>Vehicle make & model</span><input id="vehicleName" placeholder="e.g. Volvo EX30" maxlength="40"></label><button class="primary" onclick="saveVehicle()">Save vehicle</button><div class="notice">In a future connected version, your vehicle can be linked to charging sessions. Plate recognition alone will not start a charge.</div></div>
+      <nav class="nav"><button onclick="go('find')"><span>⌖</span>Find</button><button class="scan" onclick="openStation()"><span>▦</span>Scan</button><button onclick="go('receipt')"><span>▤</span>Activity</button><button class="active" onclick="go('profile')"><span>◉</span>Profile</button></nav>
+    </section>
+    <section class="page" id="payments">
+      <header class="topbar"><button class="backtext" onclick="go('profile')">‹</button><div><div class="tiny">PAYMENT SETTINGS</div><h2>Payment & wallet</h2></div><span class="tag">DEMO</span></header>
+      <div class="profile-body"><div class="test-banner">Prototype only · No real card details or payments. Card ending 4821 is fictional demo data.</div><div class="balance-card"><small>WALLET BALANCE</small><strong id="walletDisplay">R 0.00</strong><button class="secondary" onclick="topUpDemo()">＋ Add demo funds</button></div><div class="setting-card"><b style="font:700 14px Manrope">How would you like to pay?</b><label class="method"><span class="method-icon">VISA</span><span style="flex:1">Card ending 4821<small style="display:block;color:#859188;margin-top:3px">Automatic charge after each session</small></span><input type="radio" name="defaultPay" value="card" onchange="savePayment('card')"></label><label class="method"><span class="method-icon">R</span><span style="flex:1">Wallet first<small style="display:block;color:#859188;margin-top:3px">Use balance, then card for any remainder</small></span><input type="radio" name="defaultPay" value="wallet" onchange="savePayment('wallet')"></label></div><div class="setting-card"><b style="font:700 12px Manrope">Card security</b><p class="muted">In the real app, cards will be handled by a payment provider. AFE Charge will not store your full card number or CVV.</p><button class="secondary" onclick="alert('Payment provider connection will be added after the merchant account is ready.')">＋ Add or change card</button></div></div>
+      <nav class="nav"><button onclick="go('find')"><span>⌖</span>Find</button><button class="scan" onclick="openStation()"><span>▦</span>Scan</button><button onclick="go('receipt')"><span>▤</span>Activity</button><button class="active" onclick="go('profile')"><span>◉</span>Profile</button></nav>
     </section>
   </div></div><div class="screenlabel">Interactive mobile concept · tap buttons and map pins</div></section>
 
@@ -146,11 +157,17 @@
   </aside>
 </main>
 <script>
-const pages=['find','station','setup','live','receipt','profile'];
-function go(id){pages.forEach(p=>document.getElementById(p).classList.toggle('active',p===id));document.querySelectorAll('.step').forEach(s=>s.classList.toggle('active',s.dataset.step===id));}
+const pages=['find','station','setup','live','receipt','profile','vehicles','payments'];
+function go(id){pages.forEach(p=>document.getElementById(p).classList.toggle('active',p===id));document.querySelectorAll('.step').forEach(s=>s.classList.toggle('active',s.dataset.step===id));if(id==='vehicles')loadVehicle();if(id==='payments')loadPayment();if(id==='setup')loadSetupPayment();}
 function openStation(){go('station')}
 function selectChoice(el){document.querySelectorAll('.choice').forEach(c=>c.classList.remove('active'));el.classList.add('active');const label=el.querySelector('strong').textContent;document.getElementById('limitValue').innerHTML=label+' <small>'+ (label.includes('%')?'battery':label.includes('R')?'amount':'energy')+'</small>';}
 function finish(){document.getElementById('energy').innerHTML='25.0 <span>kWh</span>';document.getElementById('cost').textContent='R 162.50';go('receipt')}
+function saveVehicle(){const plate=document.getElementById('vehiclePlate').value.trim().toUpperCase();const name=document.getElementById('vehicleName').value.trim();if(!plate||!name){alert('Please enter a plate and vehicle make/model.');return}localStorage.setItem('afcVehicle',JSON.stringify({plate,name}));loadVehicle();alert('Vehicle saved on this device (demo only).')}
+function loadVehicle(){try{const v=JSON.parse(localStorage.getItem('afcVehicle')||'null');if(v){document.getElementById('vehiclePlateDisplay').textContent=v.plate;document.getElementById('vehicleNameDisplay').textContent=v.name;document.getElementById('vehiclePlate').value=v.plate;document.getElementById('vehicleName').value=v.name}}catch(e){}}
+function savePayment(mode){localStorage.setItem('afcPayMode',mode)}
+function loadPayment(){document.querySelectorAll('input[name="defaultPay"]').forEach(el=>el.checked=el.value===(localStorage.getItem('afcPayMode')||'card'));document.getElementById('walletDisplay').textContent='R '+(Number(localStorage.getItem('afcWallet')||0)).toFixed(2)}
+function loadSetupPayment(){const mode=localStorage.getItem('afcPayMode')||'card';document.querySelectorAll('input[name="pay"]').forEach(el=>el.checked=el.value===mode);document.getElementById('setupWallet').textContent=(Number(localStorage.getItem('afcWallet')||0)).toFixed(2)}
+function topUpDemo(){const amount=Number(localStorage.getItem('afcWallet')||0)+100;localStorage.setItem('afcWallet',String(amount));loadPayment();alert('R 100 demo funds added. No real payment was made.')}
 </script>
 <script>
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -159,3 +176,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 </script>
 </body>
 </html>
+
