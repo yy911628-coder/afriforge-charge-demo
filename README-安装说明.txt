@@ -1,7 +1,7 @@
 AFE Charge · v3 CPO iPhone PWA demo
 
 Live HTTPS demo
-https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v3
+https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v4
 
 Install or refresh on iPhone
 1. Open the link above in Safari while online.
