@@ -212,7 +212,7 @@ function loadPayment(){document.querySelectorAll('input[name="defaultPay"]').for
 function loadSetupPayment(){const mode=localStorage.getItem('afcPayMode')||'card';document.querySelectorAll('input[name="pay"]').forEach(el=>el.checked=el.value===mode);document.getElementById('setupWallet').textContent=(Number(localStorage.getItem('afcWallet')||0)).toFixed(2)}
 function topUpDemo(){const amount=Number(localStorage.getItem('afcWallet')||0)+100;localStorage.setItem('afcWallet',String(amount));loadPayment();alert('R 100 demo funds added. No real payment was made.')}
 </script>
-<script src="./app.js"></script>
+<script src="./app.js?v=afe-v4"></script>
 <script>
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
