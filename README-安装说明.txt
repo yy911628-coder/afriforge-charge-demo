@@ -1,7 +1,7 @@
-AFE Charge · AFE Charge · v5 iPhone PWA demo
+AFE Charge · AFE Charge · v6 iPhone PWA demo
 
 Live HTTPS demo
-https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v5
+https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v6
 
 Install or refresh on iPhone
 1. Open the link above in Safari while online.
@@ -21,8 +21,12 @@ Demo limits
 This is a static PWA with simulated station/session/payment and CPO economics data. It does not connect to chargers, vehicles, a backend or a payment provider. Card authorisation, wallet and fleet settlement are simulated and no money is charged. History and preferences are stored locally in this browser/device. Economic, utilisation and payback values are illustrative, not forecasts.
 
 
-New in v5
+New in v6
 Map/list view with Google Maps JavaScript API integration and simulated station markers. Live map rendering needs a Google Maps browser key. Add it to config.js at window.AFE_CONFIG.GOOGLE_MAPS_API_KEY; restrict it by referrer to the published Pages site and local development origin, and enable Maps JavaScript API. The key is visible in browser code, so never use an unrestricted key. Directions open the Google Maps directions URL.
 
 Guest QR flow, local wallet top-ups, demo card form (only last four digits are saved), four languages, theme/font settings, emergency guide, feedback form and help centre are included. Preferences and demo records are stored in this browser's localStorage. The card form never sends or saves the full card number, expiry or CVV.
+
+
+AFE Charge v6 UX update
+The app now uses a full-viewport mobile layout, safe-area-aware bottom navigation and sheets, light/dark design tokens, a static illustrated map fallback with mock markers, and an animated guest QR scanner plus connection sequence. Language changes re-render the current screen immediately. Local storage failures are handled without crashing.
 
