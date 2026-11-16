@@ -64,13 +64,16 @@ html[data-theme="dark"] .app-recommend .app-button{background:var(--lime);color:
 html[data-theme="dark"] .afe-map-fallback.premium-map{background-color:#26392e;background-image:linear-gradient(27deg,transparent 46%,#405146 47%,#405146 51%,transparent 52%),linear-gradient(112deg,transparent 45%,#47564c 46%,#47564c 49%,transparent 50%),linear-gradient(158deg,transparent 54%,#35443a 55%,#35443a 60%,transparent 61%),linear-gradient(4deg,transparent 31%,#405046 32%,#405046 36%,transparent 37%)}html[data-theme="dark"] .map-waterway{background:#355b52}html[data-theme="dark"] .map-park{background:#365640}html[data-theme="dark"] .map-road{background:#796e56;border-color:#8c846f}html[data-theme="dark"] .map-neighborhood{color:#b8c8bc}html[data-theme="dark"] .station-drawer{background:color-mix(in srgb,var(--surface) 96%,transparent);border-color:var(--line);box-shadow:0 14px 42px #0008}html[data-theme="dark"] .recommended-card{background:linear-gradient(125deg,#203a2b,var(--surface))}html[data-theme="dark"] .live-energy-card{background:radial-gradient(ellipse at 50% 30%,#21422e,var(--surface) 72%)}html[data-theme="dark"] .live-ring{box-shadow:0 10px 32px #0d422c55}html[data-theme="dark"] .app-nav{background:color-mix(in srgb,var(--surface) 96%,transparent)}
 @media(max-width:430px){.map-home-top{min-height:55px;padding-right:14px;padding-left:16px}.station-drawer{right:8px;bottom:7px;left:8px;padding-right:12px;padding-left:12px}.station-drawer.collapsed{max-height:238px}.recommended-card{min-height:91px;padding:11px}.app-main.home-main{padding-bottom:calc(72px + env(safe-area-inset-bottom))}.live-energy-card{min-height:274px}.live-page{padding-right:1px;padding-left:1px}}
 .app-input,.app-select,textarea.app-input{font-size:16px}
+.afe-map-marker.afe-featured-site{width:66px;height:66px;background:linear-gradient(145deg,#1c9b5f,#075c39);box-shadow:0 0 0 8px #54c47b30,0 9px 26px #073b2780;animation:marker-breathe 2.2s ease-in-out infinite}
+.afe-map-marker.afe-featured-site .marker-bolt{display:grid;width:35px;height:35px;place-items:center;border-radius:12px;background:#ffffff20;color:#fff;font-size:25px;font-weight:900;transform:rotate(45deg)}
+.afe-map-marker.afe-featured-site small{position:absolute;right:-7px;bottom:-5px;min-width:23px;padding:3px 5px;border:2px solid var(--surface);border-radius:99px;background:#fff;color:#12653f;font-size:10px;font-weight:900;line-height:1;transform:rotate(45deg)}
 @media(prefers-reduced-motion:reduce){.station-drawer,.afe-map-marker,.live-progress i{transition:none!important}.afe-map-marker.featured,.connection-step.active .connection-step-icon,.live-status-dot{animation:none!important}}
 </style>
 </head>
 <body><main class="appview" aria-label="AFE Charge app"></main>
-<script src="./config.js?v=afe-v10"></script>
-<script src="./i18n.js?v=afe-v10"></script>
-<script src="./app.js?v=afe-v10"></script>
+<script src="./config.js?v=afe-v11"></script>
+<script src="./i18n.js?v=afe-v11"></script>
+<script src="./app.js?v=afe-v11"></script>
 <script>if('serviceWorker'in navigator&&location.protocol!=='file:')window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js').catch(()=>{}));</script>
 </body></html>
 
