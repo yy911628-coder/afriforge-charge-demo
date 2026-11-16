@@ -38,7 +38,8 @@ window.AFE_I18N = {
       "language": "Language",
       "payment": "Payment",
       "connecting": "Connecting to charger and starting…",
-      "demoOnly": "Demo only · no real payment or charger connection."
+      "demoOnly": "Demo only · no real payment or charger connection.",
+      "demoBadge": "DEMO", "recommendedStation": "BEST AVAILABLE NEAR YOU", "successRate": "24h start success", "chargingStations": "Charging stations", "findCharger": "Find a charger", "stationEconomics": "Station economics", "nearbyStations": "Nearby stations", "stationsCount": "stations", "expandStations": "Expand station list", "noStationsForFilters": "No stations match these filters", "filter": "Filter stations", "illustratedMap": "Illustrated demo map around Johannesburg", "mapPreview": "Map preview · simulated locations", "myLocation": "Location preview", "offlineDemo": "Offline demo · station status may be out of date.", "connectingSecure": "Establishing a secure connection…", "sendingStart": "Sending a start command to the charger…", "startSuccess": "Charging started successfully", "noRealConnection": "Demonstration only · no real charger or payment is connected.", "chargingNow": "Charging now", "currentDemoCost": "Current demo cost", "used": "Used", "remainingLimit": "Remaining limit", "battery": "Battery", "chargeLimit": "Charge limit", "adjustLimit": "Adjust limit", "advanceDemo": "Advance demo by 5 kWh"
     },
     "af": {
       "home": "Tuis",
@@ -77,7 +78,8 @@ window.AFE_I18N = {
       "language": "Taal",
       "payment": "Betaling",
       "connecting": "Koppel aan laaier en begin…",
-      "demoOnly": "Slegs demonstrasie · geen werklike betaling of laaierverbinding nie."
+      "demoOnly": "Slegs demonstrasie · geen werklike betaling of laaierverbinding nie.",
+      "demoBadge": "DEMO", "recommendedStation": "BESTE BESKIKBAAR NABY JOU", "successRate": "24h-aanvangsukses", "chargingStations": "Laaiestasies", "findCharger": "Vind ’n laaier", "stationEconomics": "Stasie-ekonomie", "nearbyStations": "Nabygeleë stasies", "stationsCount": "stasies", "expandStations": "Vou stasielys oop", "noStationsForFilters": "Geen stasies pas by hierdie filters nie", "filter": "Filtreer stasies", "illustratedMap": "Geïllustreerde demokaart van Johannesburg", "mapPreview": "Kaartvoorskou · gesimuleerde liggings", "myLocation": "Liggingvoorskou", "offlineDemo": "Vanlyn demo · stasietoestand kan verouderd wees.", "connectingSecure": "Beveiligde verbinding word opgestel…", "sendingStart": "Beginopdrag word na die laaier gestuur…", "startSuccess": "Laai is suksesvol begin", "noRealConnection": "Slegs demonstrasie · geen werklike laaier of betaling is gekoppel nie.", "chargingNow": "Laai tans", "currentDemoCost": "Huidige demokoste", "used": "Gebruik", "remainingLimit": "Oorblywende limiet", "battery": "Battery", "chargeLimit": "Laailimiet", "adjustLimit": "Verstel limiet", "advanceDemo": "Simuleer nog 5 kWh"
     },
     "zu": {
       "home": "Ikhaya",
@@ -116,7 +118,8 @@ window.AFE_I18N = {
       "language": "Ulimi",
       "payment": "Inkokhelo",
       "connecting": "Ixhuma kushaja futhi iyaqala…",
-      "demoOnly": "Umboniso kuphela · akukho nkokhelo noma ishaja yangempela."
+      "demoOnly": "Umboniso kuphela · akukho nkokhelo noma ishaja yangempela.",
+      "demoBadge": "IDEMO", "recommendedStation": "OKUTHOLAKALA KAHLE EDUZE NAWE", "successRate": "Impumelelo yokuqala emahoreni angu-24", "chargingStations": "Iziteshi zokushaja", "findCharger": "Thola ishaja", "stationEconomics": "Umnotho wesiteshi", "nearbyStations": "Iziteshi eziseduze", "stationsCount": "iziteshi", "expandStations": "Vula uhlu lweziteshi", "noStationsForFilters": "Azikho iziteshi ezihambisana nalezi zihlungi", "filter": "Hlunga iziteshi", "illustratedMap": "Imephu yedemo ebonisa izindawo zaseJohannesburg", "mapPreview": "Ukubuka imephu · izindawo ezilingisiwe", "myLocation": "Ukubuka indawo", "offlineDemo": "Idemo ayikho ku-inthanethi · isimo sesiteshi singase singabi sesakamuva.", "connectingSecure": "Kwakhiwa uxhumano oluvikelekile…", "sendingStart": "Kuthunyelwa umyalo wokuqalisa kushaja…", "startSuccess": "Ukushaja kuqalwe ngempumelelo", "noRealConnection": "Idemo kuphela · akukho shaja noma inkokhelo yangempela exhunyiwe.", "chargingNow": "Iyashaja manje", "currentDemoCost": "Izindleko zamanje zedemo", "used": "Kusetshenzisiwe", "remainingLimit": "Umkhawulo osele", "battery": "Ibhethri", "chargeLimit": "Umkhawulo wokushaja", "adjustLimit": "Lungisa umkhawulo", "advanceDemo": "Lingisa amanye ama-5 kWh"
     },
     "zh": {
       "home": "首页",
@@ -155,7 +158,8 @@ window.AFE_I18N = {
       "language": "语言",
       "payment": "支付",
       "connecting": "正在连接充电桩并启动…",
-      "demoOnly": "仅演示 · 不连接真实充电桩或支付。"
+      "demoOnly": "仅演示 · 不连接真实充电桩或支付。",
+      "demoBadge": "演示", "recommendedStation": "附近最佳可用站点", "successRate": "24 小时启动成功率", "chargingStations": "充电站点", "findCharger": "查找充电站", "stationEconomics": "站点运营数据", "nearbyStations": "附近站点", "stationsCount": "个站点", "expandStations": "展开站点列表", "noStationsForFilters": "没有符合条件的站点", "filter": "筛选站点", "illustratedMap": "约翰内斯堡模拟地图", "mapPreview": "地图预览 · 模拟位置", "myLocation": "位置预览", "offlineDemo": "离线演示 · 站点状态可能不是最新。", "connectingSecure": "正在建立安全连接...", "sendingStart": "正在向充电桩发送指令...", "startSuccess": "启动成功", "noRealConnection": "演示专用 · 未连接真实充电桩或支付服务。", "chargingNow": "正在充电", "currentDemoCost": "当前模拟费用", "used": "已使用", "remainingLimit": "剩余额度", "battery": "电量", "chargeLimit": "充电限额", "adjustLimit": "调整限额", "advanceDemo": "模拟增加 5 kWh"
     }
   },
   "copy": {
