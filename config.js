@@ -3,7 +3,7 @@
 // Restrict the key by HTTP referrer (your GitHub Pages domain and local test URL)
 // and restrict it to Maps JavaScript API in Google Cloud Console.
 window.AFE_CONFIG = window.AFE_CONFIG || {
-  GOOGLE_MAPS_API_KEY: "",
+  GOOGLE_MAPS_API_KEY: "AIzaSyDVZhzFPLkDbLcdqn5kv_eHJlXt4KGzO6s",
   GOOGLE_MAP_ID: "DEMO_MAP_ID"
 };
 
