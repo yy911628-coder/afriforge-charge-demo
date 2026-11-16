@@ -1,12 +1,12 @@
-AFE Charge · iPhone PWA demo · v16
+AFE Charge · iPhone PWA demo · v18
 
 Live HTTPS demo
-https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v17
+https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v18
 
 Install or refresh on iPhone
 1. Open the link above in Safari while online.
 2. Tap Share → Add to Home Screen.
-3. For an existing home-screen app, open the v16 link in Safari once, then close and reopen the app. If the old cached screen remains, remove the old icon and add it again.
+3. For an existing home-screen app, open the v18 link in Safari once, then close and reopen the app. If the old cached screen remains, remove the old icon and add it again.
 
 Demo flow
 Find a station → choose a connector → set amount/energy/battery limit → choose card or wallet → start → adjust limit or stop → review payment reconciliation → history → simulated invoice.
@@ -21,7 +21,7 @@ Demo limits
 This is a static PWA with simulated station/session/payment and CPO economics data. It does not connect to chargers, vehicles, a backend or a payment provider. Card authorisation, wallet and fleet settlement are simulated and no money is charged. History and preferences are stored locally in this browser/device. Economic, utilisation and payback values are illustrative, not forecasts.
 
 
-Camera scanning in v16
+Camera scanning in v18
 Open the Scan tab and tap “Open camera to scan QR”. Safari asks for camera access after the tap. Allow access while using the site. The camera stream stops when you leave the scan screen. If QR recognition cannot load, enter the charger code below. Use HTTPS; camera access does not work from a file:// URL.
 
 New in v7
