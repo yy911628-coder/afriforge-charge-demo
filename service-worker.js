@@ -1,5 +1,5 @@
-const CACHE = "afe-charge-test-v18";
-const CORE = ["./", "./index.html", "./config.js?v=afe-v18", "./i18n.js?v=afe-v18", "./app.js?v=afe-v18", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
+const CACHE = "afe-charge-test-v19";
+const CORE = ["./", "./index.html", "./config.js?v=afe-v19", "./i18n.js?v=afe-v19", "./app.js?v=afe-v19", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).then(() => self.skipWaiting()));
 });
