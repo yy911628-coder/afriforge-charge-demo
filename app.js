@@ -250,6 +250,18 @@ const renderProfileBaseV16=renderProfile;renderProfile=function(){renderProfileB
 function refreshTabSelection(){const active=nav();document.querySelector('.app-nav')?.replaceWith(document.createRange().createContextualFragment(active))}
 render();
 
+function nav(){
+  const scanActive=['scan','guest','connecting','guestConnecting'].includes(appState.page),orders=['history','summary','invoice','wallet-entry'].includes(appState.page),mine=['profile','personal','payments','fleet','cardForm','settings','settings-appearance','settings-language','settings-accessibility','settings-support','settings-about','emergency','feedback','help'].includes(appState.page);
+  return `<nav class="app-nav" aria-label="${t('primaryNavigation')}">
+    <button class="${appState.page==='find'?'active':''}" aria-current="${appState.page==='find'?'page':'false'}" onclick="showPage('find')"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></span><span>${t('home')}</span></button>
+    <button class="${appState.page==='wallet'?'active':''}" aria-current="${appState.page==='wallet'?'page':'false'}" onclick="showPage('wallet')"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 1 4 15.5z"/><path d="M4 7h14a2 2 0 0 1 2 2v8M15 12h5M6.5 21H20"/><circle cx="16.5" cy="12" r=".7"/></svg></span><span>${t('wallet')}</span></button>
+    <button class="${orders?'active':''}" aria-current="${orders?'page':'false'}" onclick="showPage('history')"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v5h5M8 12h8M8 16h8"/></svg></span><span>${t('orders')}</span></button>
+    <button class="${mine?'active':''}" aria-current="${mine?'page':'false'}" onclick="showPage('profile')"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2z"/></svg></span><span>${t('profileTab')}</span></button>
+    <button class="nav-scan ${scanActive?'active':''}" aria-label="${t('scan')}" onclick="showPage('scan')"><span class="nav-scan-icon"><svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 7h4v4H7zM14 7h3v3h-3zM14 14h3v3h-3zM7 14h2v3H7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="nav-scan-label">${t('scan')}</span></button>
+  </nav>`;
+}
+render();
+
 function walletTransactions(includeFleet=false){
   const topups=store.walletLedger.filter(entry=>entry.type!=='charge').map((entry,index)=>({id:entry.id||`topup-${entry.created||index}`,type:'topup',amount:Number(entry.amount||0)+Number(entry.bonus||0),paid:Number(entry.amount||0),bonus:Number(entry.bonus||0),created:entry.created||Date.now(),stationName:'',energy:0,payment:'wallet'}));
   const charges=store.history.filter(r=>includeFleet||r.customerType!=='fleet').map(r=>({id:r.id,type:'charge',amount:Number(r.actual||0),created:r.ended||r.started||Date.now(),stationName:r.stationName||'',energy:Number(r.energy||0),payment:r.customerType==='fleet'?'fleet':r.payment||'card',recordId:r.id}));
