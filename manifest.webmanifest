@@ -3,7 +3,7 @@
   "name": "AFE Charge",
   "short_name": "AFE",
   "description": "Find a charger, simulate a charging session, and review a demo receipt.",
-  "start_url": "./?v=afe-v10",
+  "start_url": "./?v=afe-v11",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
