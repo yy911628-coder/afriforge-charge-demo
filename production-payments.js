@@ -1,6 +1,6 @@
 'use strict';
 
-function productionPayments({tr, esc, pair, render}) {
+function productionPayments({tr, esc, pair, render, getAccount}) {
   const passFormat = /^[A-Za-z0-9_-]{43}$/;
   const attemptFormat = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
   const referenceFormat = /^[a-f0-9]{16}$/;
@@ -8,7 +8,7 @@ function productionPayments({tr, esc, pair, render}) {
   const targetFields = ['country_code','party_id','location_id','evse_uid','connector_id'];
   const targetValid = t => targetFields.every(k => typeof t?.[k] === 'string' && t[k].trim() && t[k].length <= 36);
   const validAmount = n => typeof n === 'string' && moneyFormat.test(n) && Number(n) > 0;
-  const key = 'afe.production.payment.v1.' + AFE_BASE_URL;
+  const key = 'afe.production.payment.v2.' + AFE_BASE_URL;
   let current = null, capability = null, receipt = null, busy = false, error = '', checkingAccess = false;
   let capabilityError = '', signedReturnIntent = null, returnEvidence = null;
   const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid});
@@ -38,6 +38,7 @@ function productionPayments({tr, esc, pair, render}) {
     const fragment = new URLSearchParams(url.hash.slice(1));
     let saved;
     try { saved=JSON.parse(sessionStorage.getItem(key)); } catch {}
+    if (!AFEAuth.token() && !fragment.has('afe_payment_return')) return;
     if (fragment.has('afe_payment_return')) {
       const pass = fragment.get('afe_payment_return'), id = fragment.get('attempt');
       url.hash = '';
@@ -85,7 +86,7 @@ function productionPayments({tr, esc, pair, render}) {
         (current.amount && result.amount !== current.amount)) throw new ChargeApiError(502,'PAYMENT_ORDER_MISMATCH');
   }
   async function checkStatus() {
-    if (!AFE_BASE_URL || !current || busy) return;
+    if (!AFE_BASE_URL || !AFEAuth.token() || !current || busy) return;
     busy = true; error = ''; receipt = null; render();
     try {
       const result = await AFEApi.paymentStatus(current.pass);
@@ -124,16 +125,26 @@ function productionPayments({tr, esc, pair, render}) {
     }
     return url.href;
   }
-  async function checkout(gun, pass, confirmedAmount) {
+  async function checkout(gun, vehicleId, confirmedAmount, saveCard, cardId) {
     if (current || busy || !capability || !commands.permitsCheckout(gun) || !gun || gun.standard !== 'IEC_62196_T2_COMBO' ||
         gun.status !== 'AVAILABLE' || !targetValid(gun)) return;
     if (capability.amount !== confirmedAmount) { error = 'PAYMENT_AMOUNT_CHANGED'; render(); return; }
     const target = Object.fromEntries(targetFields.map(k => [k,gun[k]]));
-    current = {pass,amount:confirmedAmount,target};
-    if (!save()) { current=null; error='PAYMENT_SESSION_STORAGE_UNAVAILABLE'; render(); return; }
+    const intentKey='afe.intent.'+AFE_BASE_URL;
+    const choice=JSON.stringify([vehicleId,confirmedAmount,target,saveCard,cardId]);
+    let intent;
+    try { intent=JSON.parse(sessionStorage.getItem(intentKey)); } catch {}
+    if (intent?.choice!==choice || !attemptFormat.test(intent?.id)) {
+      intent={choice,id:crypto.randomUUID()};sessionStorage.setItem(intentKey,JSON.stringify(intent));
+    }
     busy = true; error = ''; receipt = null; render();
     try {
-      const result = await AFEApi.createCheckout(pass, {target,amount:confirmedAmount,currency:'ZAR'});
+      const grant=await AFEApi.account('/me/charge-intents','POST',{target,vehicleId,amount:confirmedAmount,saveCard,cardId,requestId:intent.id});
+      if (!passFormat.test(grant.pass) || !attemptFormat.test(grant.attemptId)) throw new ChargeApiError(502,'PAYMENT_ORDER_MISMATCH');
+      current={pass:grant.pass,id:grant.attemptId,amount:confirmedAmount,target};
+      if(!save()){current=null;throw new ChargeApiError(0,'PAYMENT_SESSION_STORAGE_UNAVAILABLE');}
+      sessionStorage.removeItem(intentKey);
+      const result = await AFEApi.createCheckout(grant.pass, {target,amount:confirmedAmount,currency:'ZAR'});
       requireMatch(result);
       if (result.status !== 'CHECKOUT_CREATED') throw new ChargeApiError(502,'CHECKOUT_UNCONFIRMED');
       const url = checkoutURL(result.redirect_url);
@@ -176,8 +187,8 @@ function productionPayments({tr, esc, pair, render}) {
         tr('Close payment view','关闭本次支付视图')+'</button>';
     } else if (capability && commands.permitsCheckout(gun) && gun?.standard === 'IEC_62196_T2_COMBO' && gun.status === 'AVAILABLE') {
       content='<p>'+tr('Peach will request a card hold. When the hold is confirmed, AFE will start the selected connector.','Peach 将申请银行卡预授权。预授权确认后，AFE 将启动所选枪口。')+'</p>'+
-        '<form class="rec-picker" data-form="checkout" data-amount="'+esc(capability.amount)+'">'+password('checkout-pass')+
-        submit(tr('Preauthorise ZAR ','预授权 ZAR ')+esc(capability.amount)+tr(' and start charging',' 并启动充电'))+'</form>';
+        '<form class="rec-picker" data-form="checkout" data-amount="'+esc(capability.amount)+'">'+getAccount().chargeControls()+
+        (getAccount().hasVehicles()?submit(tr('Preauthorise ZAR ','预授权 ZAR ')+esc(capability.amount)+tr(' and start charging',' 并启动充电')):'')+'</form>';
     } else {
       content='<p>'+(!AFE_BASE_URL || (!capability && !capabilityError) ?
         tr('Production card payments are not enabled.','正式银行卡支付尚未开通。') :
@@ -185,15 +196,20 @@ function productionPayments({tr, esc, pair, render}) {
         tr('Preauthorisation requires an available CCS2 connector enabled for remote start.','请选择已开通远程启动且当前可用的 CCS2 枪口进行预授权。'))+'</p>';
     }
     if (error) content += '<p role="alert" class="rec-alert">'+tr('Payment could not be verified','支付结果尚未核验')+' · '+esc(error)+'</p>';
-    if (!current && AFE_BASE_URL) content += '<details><summary>'+tr('Look up a previous payment','查询已有预授权')+
-      '</summary><form class="rec-picker" data-form="lookup">'+password('lookup-pass')+submit(tr('Look up','查询'))+'</form></details>';
+    if (!current && getAccount().active()) content+='<button class="rec-refresh" type="button" data-page="orders">'+tr('My orders','我的订单')+'</button>';
     return '<section class="app-card rec-card"><h2>'+tr('Card preauthorisation','银行卡预授权')+'</h2>'+content+commands.card(gun)+'</section>';
   }
   function submitForm(event, gun) {
     const form = event.target;
     if (!form.matches('form[data-form]')) return;
     event.preventDefault();
-    const pass = form.querySelector('input').value.trim();
+    if(form.dataset.form==='checkout'){
+      if(!busy && getAccount().hasVehicles()){
+        const v=new FormData(form);void checkout(gun,v.get('vehicleId'),form.dataset.amount,!!v.get('saveCard') && !v.get('cardId'),v.get('cardId') || null);
+      }
+      return;
+    }
+    const pass = form.querySelector('input')?.value.trim();
     if (!passFormat.test(pass) || busy) return;
     if (form.dataset.form==='unlock-commands' && current) {
       void commands.query(pass,(original,result) => {
@@ -202,7 +218,7 @@ function productionPayments({tr, esc, pair, render}) {
       return;
     }
     if (current) return;
-    if (form.dataset.form === 'checkout') void checkout(gun,pass,form.dataset.amount);
+
     if (form.dataset.form === 'lookup') { current = {pass}; save(); void checkStatus(); }
   }
   function action(name,gun) {
@@ -212,6 +228,12 @@ function productionPayments({tr, esc, pair, render}) {
     if (name === 'close-payment' && !busy && !commands.isBusy()) { commands.clear(); current = null; receipt = null; error = ''; save(); render(); }
   }
   window.addEventListener('pageshow', event => { if (event.persisted && current) void checkStatus(); });
-  return {card,submitForm,action,loadCapability,loadCommands:commands.load,checkStatus,finishReturn,
+  async function resume(grant){
+    if(busy || commands.isBusy())return;
+    if(!passFormat.test(grant.pass) || !attemptFormat.test(grant.attemptId) || !targetValid(grant.target))throw new ChargeApiError(502,'PAYMENT_ORDER_MISMATCH');
+    commands.clear();receipt=null;current={pass:grant.pass,id:grant.attemptId,target:grant.target,amount:grant.amount};
+    save();await checkStatus();
+  }
+  return {card,resume,submitForm,action,loadCapability,loadCommands:commands.load,checkStatus,finishReturn,
     hasOrder:() => current !== null, target:() => current?.target};
 }

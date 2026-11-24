@@ -121,8 +121,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         body+='<p role="alert">'+tr('The session is still active. Use Stop on the charger or ask the site operator to end the session.','会话仍在充电。请在桩屏选择“停止充电”，或联系现场运营人员结束本次会话。')+'</p>';
       }
       if (!data.canCommand && ((capability?.enabled && getPayment()?.status==='AUTHORIZED') || (data.start && !finished()))) {
-        body+='<form class="rec-picker" data-form="unlock-commands"><p>'+tr('Enter the original pass to control this connector.','输入本次充电的原始操作通行证以启停枪口。')+'</p>'+
-          password('original-pass')+'<button class="rec-refresh" type="submit"'+(busy?' disabled':'')+'>'+tr('Verify original pass','核验原始通行证')+'</button></form>';
+        body+='<button type="button" class="rec-refresh" data-account="order" data-id="'+esc(order.id)+'">'+tr('Resume charge controls','恢复本次充电操作')+'</button>';
       } else if (mayStart(gun)) {
         body+=button('start-charge',tr('Start charging','启动充电'));
       } else if (active() && data.canCommand && !data.stop && !uncertain) {

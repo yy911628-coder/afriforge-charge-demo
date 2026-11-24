@@ -31,9 +31,10 @@
     } catch {}
     return false;
   }
-  const payments = productionPayments({tr, esc, pair, render});
+  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account});
+  const account=driverAccount({root,tr,esc,navigate,render,getPage:()=>page,getPayments:()=>payments});
   const priorSession = hasPriorSession();
-  let page = payments.hasOrder() ? 'orders' : 'home';
+  let page = 'home';
   let renderedPage = '', lastContent = '', lastNav = '';
   const tabPages = new Set(['home','wallet','scan','orders','profile']);
   function esc(input) {
@@ -158,6 +159,7 @@
     if (page === 'home') return driverHome({tr,esc,locations,site:selectedSite(),loading,catalogError,configured:!!AFE_BASE_URL,sourceTime});
     if (page === 'report') return reportDetail();
     if (page === 'station') return stationDetail();
+    if (account.handles(page)) return account.screen(page);
     const hasOrder = payments.hasOrder();
     const paymentCard = ['wallet','orders'].includes(page) ? payments.card(hasOrder ? selectedGun() : null) : '';
     let screen = driverTab({page,tr,paymentCard,hasOrder});
@@ -181,13 +183,15 @@
       root.scrollTop = scroll;
       lastContent = content; renderedPage = page;
     }
-    const nav = driverNav(tr,page);
+    const nav = driverNav(tr,account.handles(page) && !['wallet','orders'].includes(page)?'profile':page);
     if (lastNav !== nav) { navRoot.innerHTML = nav; lastNav = nav; }
   }
   function navigate(next, push = true) {
-    if (!tabPages.has(next) && !['station','report'].includes(next)) return;
+    if (!tabPages.has(next) && !account.handles(next) && !['station','report'].includes(next)) return;
+    next=account.target(next);
     if (next !== page && push) history.pushState({afeView:next,stationKey,connectorKey},'');
-    page = next;
+    const changed=page!==next;page = next;
+    if(changed) account.enter(next);
     render();
   }
   function showCode(raw) {
@@ -217,6 +221,7 @@
     if (gun) { manuallySelected = true; connectorKey = keyForGun(gun); render(); }
   });
   root.addEventListener('submit', event => {
+    if (event.target.matches('form[data-account-form]')) { void account.submit(event); return; }
     if (event.target.matches('form[data-driver-code]')) {
       event.preventDefault();
       showCode(event.target.elements.code.value);
@@ -225,6 +230,7 @@
   root.addEventListener('click', event => {
     const control = event.target.closest('button');
     if (!control || control.disabled) return;
+    if(control.dataset.account) return void account.act(control.dataset.account,control.dataset.id);
     if (control.dataset.page) return navigate(control.dataset.page);
     if (control.dataset.site !== undefined) {
       const site = locations[Number(control.dataset.site)];
@@ -258,6 +264,7 @@
   langButton.addEventListener('click',language);
   history.replaceState({afeView:page},'');
   render();
-  void Promise.all([refreshSites(),payments.loadCapability(),payments.loadCommands(),payments.checkStatus()])
-    .then(() => payments.finishReturn(resumeConnector));
+  const ready=account.start().then(next=>{if(page==='home' || page==='account-loading')navigate(next,false);});
+  void Promise.all([refreshSites(),payments.loadCapability(),payments.loadCommands(),ready])
+    .then(async()=>{if(account.active()){await payments.checkStatus();await payments.finishReturn(resumeConnector);}});
 })();
