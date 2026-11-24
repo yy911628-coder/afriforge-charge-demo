@@ -87,3 +87,75 @@
 .rec-hero p strong { font-size:1.65rem; }
 .rec-card .rec-alert { color:var(--warning); }
 .afe-recording noscript { display:block; }
+
+/* Keep the driver map and station shelf usable when the external map is unavailable. */
+.app-root .app-main.afe-recording:has(> .driver-home) {
+  padding: 0 0 calc(84px + env(safe-area-inset-bottom));
+}
+.driver-home.home-map-first {
+  overflow: visible;
+  padding-bottom: 8px;
+}
+.driver-home .map-home-top {
+  padding: 8px 18px;
+  min-height: 58px;
+}
+.driver-home .map-home-top h1 {
+  font-size: clamp(1.45rem, 6.3vw, 1.9rem);
+}
+.driver-home .driver-refresh { min-width: 44px; min-height: 44px; font-size: 1.35rem; }
+.driver-map-layout { margin: 0; }
+.driver-map-area {
+  position: relative;
+  height: clamp(134px, calc(100dvh - 450px - env(safe-area-inset-bottom)), 480px);
+  overflow: hidden;
+  border-block: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.driver-map-placeholder, .driver-tile-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+.driver-map-placeholder {
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 5px;
+  color: var(--muted);
+  background: radial-gradient(ellipse at center, var(--surface) 0, var(--surface-2) 73%);
+  font-size: .88rem;
+}
+.driver-map-placeholder strong { color: var(--text); font-size: 1.16rem; }
+.driver-map-fallback-icon { font-size: 1.7rem; color: var(--green); }
+.driver-map-placeholder .driver-map-link { min-height: 32px; }
+.driver-tile-layer, .driver-map-credit { display: none; }
+.driver-map-area:has(.driver-tile):not(:has(.driver-tile:not(.loaded))) .driver-tile-layer,
+.driver-map-area:has(.driver-tile):not(:has(.driver-tile:not(.loaded))) .driver-map-credit { display: block; }
+.driver-map-area:has(.driver-tile):not(:has(.driver-tile:not(.loaded))) .driver-map-placeholder { visibility: hidden; }
+.driver-tile { position: absolute; width: 256px; height: 256px; max-width: none; }
+.driver-map-credit {
+  position: absolute; bottom: 0; right: 0; padding: 2px 5px; background: #fffffff0; color: #294b38;
+  font-size: 10px; line-height: 1.4;
+}
+.driver-location-pin {
+  position: absolute; inset: 50% auto auto 50%; width: 18px; height: 18px;
+  border: 3px solid white; border-radius: 50%; transform: translate(-50%, -50%);
+  background: var(--green); box-shadow: 0 2px 6px #1a35294d;
+}
+.driver-map-legend {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+  gap: 0 10px; padding: 0 16px; min-height: 40px;
+  font-size: .73rem; line-height: 1.4; color: var(--muted);
+}
+.driver-map-link { display: inline-flex; align-items: center; min-height: 40px; color: var(--green-deep); }
+.driver-home .driver-directory {
+  position: relative; inset: auto;
+  overflow: visible; max-height: none;
+  margin: 0 9px; padding: 0 13px 13px;
+}
+.driver-grip { width: 34px; height: 4px; margin: 9px auto 4px; border-radius: 5px; background: var(--line); }
+.driver-directory .drawer-heading { height: auto; min-height: 34px; cursor: auto; }
+.driver-directory .drawer-heading h2 { font-size: 1.05rem; }
+.driver-directory .driver-site { margin: 3px 0 0; min-height: 70px; }
+.driver-site .recommended-copy { gap: 3px; }
+.driver-site .recommended-copy small, .driver-site .recommended-copy span { font-size: .76rem; line-height: 1.35; }
+.driver-site .recommended-copy b { font-size: 1.04rem; }
+.driver-directory .driver-live-note, .driver-directory-empty {
+  margin: 9px 2px 0; font-size: .78rem; color: var(--muted); line-height: 1.45;
+}
+.driver-more-sites summary { padding: 14px 2px 6px; color: var(--green-deep); font-weight: 650; cursor: pointer; }
+.driver-more-sites .driver-site { margin-top: 7px; }

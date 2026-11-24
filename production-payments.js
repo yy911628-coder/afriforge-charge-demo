@@ -212,5 +212,6 @@ function productionPayments({tr, esc, pair, render}) {
     if (name === 'close-payment' && !busy && !commands.isBusy()) { commands.clear(); current = null; receipt = null; error = ''; save(); render(); }
   }
   window.addEventListener('pageshow', event => { if (event.persisted && current) void checkStatus(); });
-  return {card,submitForm,action,loadCapability,loadCommands:commands.load,checkStatus,finishReturn};
+  return {card,submitForm,action,loadCapability,loadCommands:commands.load,checkStatus,finishReturn,
+    hasOrder:() => current !== null, target:() => current?.target};
 }
