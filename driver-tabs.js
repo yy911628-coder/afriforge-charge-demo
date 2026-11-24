@@ -11,16 +11,15 @@ const driverIcons = {
 function driverNav(tr, page) {
   const tabs = [
     ['home', tr('Home','首页')], ['wallet', tr('Wallet','钱包')],
-    ['orders', tr('Orders','订单')], ['profile', tr('Profile','我的')], ['scan', tr('Scan','扫码')]
+    ['scan', tr('Scan','扫码')], ['orders', tr('Orders','订单')], ['profile', tr('Profile','我的')]
   ];
   const active = tabs.some(([key]) => key === page) ? page : 'home';
   const buttons = tabs.map(([key, label]) => {
-    const scan = key === 'scan';
-    return `<button type="button" data-page="${key}" class="${scan ? 'nav-scan ' : ''}${active === key ? 'active' : ''}"
+    return `<button type="button" data-page="${key}" class="${active === key ? 'active' : ''}"
       ${active === key ? 'aria-current="page"' : ''}>
-      <span class="${scan ? 'nav-scan-icon' : 'nav-icon'}" aria-hidden="true"><svg viewBox="0 0 24 24" width="25" height="25"
+      <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="25" height="25"
       fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${driverIcons[key]}</svg></span>
-      <span class="${scan ? 'nav-scan-label' : ''}">${label}</span></button>`;
+      <span>${label}</span></button>`;
   }).join('');
   return `<nav class="app-nav" aria-label="${tr('Main navigation','主导航')}">${buttons}</nav>`;
 }

@@ -1,9 +1,43 @@
-/* The directory can show the operator's order-report site while the live feed is offline. */
-document.addEventListener('load', event => {
-  if (event.target instanceof HTMLImageElement && event.target.classList.contains('driver-tile')) {
-    event.target.classList.add('loaded');
+/* The local map is rendered from OSM data. Its bounds use the same projection as the live tiles. */
+const rivoniaBounds=[[-26.088,28.022],[-26.022,28.102]];
+const rivoniaCenter=[-26.0533333,28.0594444];
+let mountedDriverMap=null;
+function syncDriverMap(root,tr){
+  const host=root.querySelector('[data-driver-map]');
+  if(mountedDriverMap && host && mountedDriverMap.key===host.dataset.driverMap){
+    host.replaceWith(mountedDriverMap.host);
+    mountedDriverMap.map.invalidateSize({pan:false});
+    mountedDriverMap.update();
+    return;
   }
-}, true);
+  if(mountedDriverMap){mountedDriverMap.map.remove();mountedDriverMap=null;}
+  if(!host || !window.L)return;
+  const map=L.map(host,{zoomControl:false,attributionControl:false,scrollWheelZoom:false,minZoom:2,maxZoom:19});
+  const lat=Number(host.dataset.lat),lon=Number(host.dataset.lon),pin=host.dataset.pin==='yes';
+  map.setView([lat,lon],pin?16:14);
+  const bounds=L.latLngBounds(rivoniaBounds);
+  map.createPane('regionalBase').style.zIndex='190';
+  L.imageOverlay('./rivonia-map.png',bounds,{pane:'regionalBase',interactive:false,alt:''}).addTo(map);
+  const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,referrerPolicy:'origin',keepBuffer:1,updateWhenIdle:true}).addTo(map);
+  L.control.zoom({position:'topleft',zoomInTitle:tr('Zoom in','放大'),zoomOutTitle:tr('Zoom out','缩小')}).addTo(map);
+  if(pin)L.circleMarker([lat,lon],{radius:8,color:'#fff',weight:3,fillColor:'#16734b',fillOpacity:1,interactive:false}).addTo(map);
+  const update=()=>{
+    const status=host.parentElement?.querySelector('[data-map-status]');
+    if(!status)return;
+    const view=host.getBoundingClientRect(),local=bounds.contains(map.getCenter());
+    const visible=Array.from(host.querySelectorAll('img.leaflet-tile-loaded')).some(img=>{
+      const box=img.getBoundingClientRect();
+      return box.right>view.left && box.left<view.right && box.bottom>view.top && box.top<view.bottom;
+    });
+    status.hidden=visible || local;
+    status.textContent=tr('Street map unavailable here. Open the map below.','此区域的在线街道地图暂不可用，可点下方打开地图。');
+  };
+  mountedDriverMap={host,map,key:host.dataset.driverMap,update};
+  tiles.on('tileload load tileerror',update);
+  map.on('moveend zoomend',update);
+  update();
+}
 
 function driverHome({tr, esc, locations, site, loading, catalogError, configured, sourceTime}) {
   const selected = site || locations[0];
@@ -24,34 +58,20 @@ function driverHome({tr, esc, locations, site, loading, catalogError, configured
   let mapLink = '';
   let mapContent = '';
   if (located || rivonia) {
-    // The regional view has no marker. Only a coordinate pair from the CPO can pin a station.
-    const lat = located ? latitude : -26.075;
-    const lon = located ? longitude : 28.058;
-    const zoom = located ? 16 : 12;
+    const lat = located ? latitude : rivoniaCenter[0];
+    const lon = located ? longitude : rivoniaCenter[1];
+    const zoom = located ? 16 : 14;
     mapLink = 'https://www.openstreetmap.org/' + (located ? '?mlat=' + lat + '&mlon=' + lon : '') +
       '#map=' + zoom + '/' + lat + '/' + lon;
     if (Math.abs(lat) <= 85.05) {
-      const count = 2 ** zoom;
-      const x = (lon + 180) / 360 * count;
-      const y = (1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2 * count;
-      const tiles = [];
-      // The map viewport never exceeds 480 CSS pixels. Browser HTTP cache handles repeat views.
-      for (let row = Math.max(0,Math.floor(y - 240/256)); row <= Math.min(count-1,Math.floor(y + 240/256)); row++) {
-        for (let col = Math.floor(x - 240/256); col <= Math.floor(x + 240/256); col++) {
-          const column = (col + count) % count;
-          const left = Math.round((col-x) * 256), top = Math.round((row-y) * 256);
-          tiles.push('<img alt="" class="driver-tile" width="256" height="256" referrerpolicy="origin" ' +
-            'style="left:calc(50% + ' + left + 'px);top:calc(50% + ' + top + 'px)" ' +
-            'src="https://tile.openstreetmap.org/' + zoom + '/' + column + '/' + row + '.png">');
-        }
-      }
-      mapContent = '<div class="driver-tile-layer" aria-hidden="true">' + tiles.join('') +
-        (located ? '<span class="driver-location-pin"></span>' : '') + '</div>';
+      mapContent='<div class="driver-live-map" role="region" aria-label="'+tr('Street map','街道地图')+'" data-driver-map="'+
+        [lat,lon,zoom,tr('en','zh')].join('/')+'" data-lat="'+lat+'" data-lon="'+lon+'" data-pin="'+(located?'yes':'no')+'"></div>'+
+        '<span class="driver-map-status" data-map-status role="status" hidden></span>';
     }
   }
   const area = located
     ? selected.city || selected.name || tr('Station location','场站位置')
-    : rivonia ? tr('Johannesburg area','约翰内斯堡地区') : selected.name || tr('Station location','场站位置');
+    : rivonia ? tr('Rivonia, Sandton','桑顿 · Rivonia') : selected.name || tr('Station location','场站位置');
   const mapCaption = located ? tr('Station location', '场站位置') :
     rivonia ? tr('Area overview', '区域概览') : tr('Coordinates unavailable', '场站坐标待发布');
   const mapAlternative = mapLink ? '<a class="driver-map-link" href="' + esc(mapLink) +
@@ -95,8 +115,8 @@ function driverHome({tr, esc, locations, site, loading, catalogError, configured
     (configured ? '<button type="button" class="map-filter-button driver-refresh" data-act="refresh" aria-label="' +
       refresh + '" title="' + refresh + '"' + (loading ? ' disabled' : '') + '><span aria-hidden="true">↻</span></button>' : '') +
     '</header><div class="driver-map-layout"><div class="driver-map-area">' +
-    fallback + mapContent + (mapContent ? '<a class="driver-map-credit" href="https://www.openstreetmap.org/copyright" ' +
-      'rel="noopener noreferrer" target="_blank">© OpenStreetMap</a>' : '') +
+    (mapContent || fallback) + (mapContent ? '<a class="driver-map-credit" href="https://www.openstreetmap.org/copyright" ' +
+      'rel="noopener noreferrer" target="_blank">© OpenStreetMap contributors</a>' : '') +
     '</div><div class="driver-map-legend"><span>' + esc(area) + ' · ' + mapCaption + '</span>' + mapAlternative +
     '</div></div><section class="station-drawer driver-directory"><div class="driver-grip" aria-hidden="true"></div>' +
     '<div class="drawer-heading"><h2>' + tr('Charging stations','充电场站') + '</h2></div>' + stationList +

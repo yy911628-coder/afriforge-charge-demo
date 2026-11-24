@@ -179,6 +179,7 @@
       const openPanels = samePage ? Array.from(root.querySelectorAll('details'), item => item.open) : [];
       if (renderedPage === 'scan') driverStopCamera();
       root.innerHTML = content;
+      syncDriverMap(root,tr);
       root.querySelectorAll('details').forEach((item,i) => { if (openPanels[i]) item.open = true; });
       root.scrollTop = scroll;
       lastContent = content; renderedPage = page;
