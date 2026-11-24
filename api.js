@@ -1,18 +1,8 @@
-/*
- * AFE Charge API adapter (demo only).
- *
- * The Haider adapter represents AFE's eMSP connection to Haider's CPO platform
- * over OCPI 2.2.1. `/api/haider/start-charge` maps to an OCPI START_SESSION
- * command; status/session responses map to the OCPI Sessions/CDRs modules.
- * Replace these placeholders only after the vendor shares its sandbox details.
- *
- * Production note: Peach credentials and provider API calls belong on AFE's
- * backend. Never put Peach secrets, PAN, CVV, or a production card token here.
- */
+/* The sandbox recording workflow lives in recording.js. Legacy wallet/card examples remain local. */
 const HAIDER_BASE_URL = window.AFE_CONFIG?.HAIDER_BASE_URL || 'https://haider-api.example.invalid';
 const PEACH_BASE_URL = window.AFE_CONFIG?.PEACH_BASE_URL || 'https://peach-api.example.invalid';
-const AFE_BASE_URL = window.AFE_CONFIG?.AFE_BASE_URL || 'https://afe-api.example.invalid';
-const AFE_API_MOCK_MODE = true;
+const AFE_BASE_URL = window.AFE_CONFIG?.AFE_BASE_URL || '';
+const AFE_API_MOCK_MODE = false;
 const AFE_API_MOCK_DELAY_MS = 1500;
 const AFE_CARD_TOKEN_KEY = 'afeChargeMockCardToken';
 const AFE_CARD_LAST4_KEY = 'afeChargeMockCardLast4';
@@ -38,20 +28,10 @@ function setAfeChargeState(next) {
 }
 
 function afeMockRequest(baseUrl, path, request, makeResponse, failMessage = '') {
-  // Future integration seam. Production calls must target AFE backend proxies,
-  // not provider APIs directly from this browser app.
-  if (!AFE_API_MOCK_MODE) {
-    // The browser talks only to AFE's backend proxy. Provider base URLs are
-    // server-side routing configuration and must never receive browser calls.
-    return fetch(`${AFE_BASE_URL}${path}`, {
-      method: request?.method || 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: request?.body ? JSON.stringify(request.body) : undefined
-    }).then(async response => {
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || `Request failed (${response.status})`);
-      return body;
-    });
+  // These two account screens intentionally demonstrate a local wallet. Never forward
+  // their sample identifiers or balances to a payment or charging backend.
+  if (!['/api/peach/cards/tokenize', '/api/peach/wallet/top-ups'].includes(path)) {
+    return Promise.reject(new Error('Open the Hardhitter sandbox on the Home tab.'));
   }
   return new Promise((resolve, reject) => window.setTimeout(() => {
     if (failMessage) return reject(new Error(failMessage));
@@ -541,5 +521,4 @@ clearDemoData = function clearDemoDataWithMockCard() {
 };
 
 // Expose only non-secret demo metadata for the support/about screen and console.
-window.AFEApiInfo = Object.freeze({ mock: true, protocol: 'OCPI 2.2.1', haiderRole: 'CPO', afeRole: 'eMSP', transitions: AFE_CHARGE_TRANSITIONS, endpoints: { AFE_BASE_URL, HAIDER_BASE_URL, PEACH_BASE_URL }, delayMs: AFE_API_MOCK_DELAY_MS });
-render();
+window.AFEApiInfo = Object.freeze({ mock: AFE_API_MOCK_MODE, protocol: 'OCPI 2.2.1', haiderRole: 'CPO', afeRole: 'eMSP', transitions: AFE_CHARGE_TRANSITIONS, endpoints: { AFE_BASE_URL, HAIDER_BASE_URL, PEACH_BASE_URL }, delayMs: AFE_API_MOCK_DELAY_MS });

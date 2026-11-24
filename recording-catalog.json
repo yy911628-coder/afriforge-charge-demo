@@ -1,0 +1,209 @@
+{
+  "source": "snapshot",
+  "checkedAt": "2026-11-24T09:35:04.195Z",
+  "locations": [
+    {
+      "id": "TH43870001000003",
+      "name": "ZH Charge Charging Station",
+      "country_code": "CN",
+      "party_id": "HHD",
+      "evses": [
+        {
+          "uid": "TH43870001000003000100",
+          "status": "UNKNOWN",
+          "connectors": [
+            {
+              "id": "TH4387000100000300010001",
+              "standard": "IEC_62196_T1_COMBO",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000003000101",
+          "status": "UNKNOWN",
+          "connectors": [
+            {
+              "id": "TH4387000100000300010101",
+              "standard": "GBT_AC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000003000102",
+          "status": "UNKNOWN",
+          "connectors": [
+            {
+              "id": "TH4387000100000300010201",
+              "standard": "GBT_AC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000003000103",
+          "status": "UNKNOWN",
+          "connectors": [
+            {
+              "id": "TH4387000100000300010301",
+              "standard": "GBT_AC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000003000200",
+          "status": "UNKNOWN",
+          "connectors": [
+            {
+              "id": "TH4387000100000300020001",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000003000201",
+          "status": "UNKNOWN",
+          "connectors": [
+            {
+              "id": "TH4387000100000300020101",
+              "standard": "CHADEMO",
+              "power_type": "DC"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "TH43870001000001",
+      "name": "咚巴拉",
+      "country_code": "CN",
+      "party_id": "HHD",
+      "evses": [
+        {
+          "uid": "TH43870001000001000100",
+          "status": "AVAILABLE",
+          "connectors": [
+            {
+              "id": "TH4387000100000100010001",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000101",
+          "status": "AVAILABLE",
+          "connectors": [
+            {
+              "id": "TH4387000100000100010101",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000102",
+          "status": "OUTOFORDER",
+          "connectors": [
+            {
+              "id": "TH4387000100000100010201",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000103",
+          "status": "OUTOFORDER",
+          "connectors": [
+            {
+              "id": "TH4387000100000100010301",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000200",
+          "status": "RESERVED",
+          "connectors": [
+            {
+              "id": "TH4387000100000100020001",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000201",
+          "status": "RESERVED",
+          "connectors": [
+            {
+              "id": "TH4387000100000100020101",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000202",
+          "status": "AVAILABLE",
+          "connectors": [
+            {
+              "id": "TH4387000100000100020201",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000203",
+          "status": "OUTOFORDER",
+          "connectors": [
+            {
+              "id": "TH4387000100000100020301",
+              "standard": "GBT_DC",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000300",
+          "status": "OUTOFORDER",
+          "connectors": [
+            {
+              "id": "TH4387000100000100030001",
+              "standard": "IEC_62196_T1_COMBO",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000301",
+          "status": "OUTOFORDER",
+          "connectors": [
+            {
+              "id": "TH4387000100000100030101",
+              "standard": "IEC_62196_T1_COMBO",
+              "power_type": "DC"
+            }
+          ]
+        },
+        {
+          "uid": "TH43870001000001000302",
+          "status": "RESERVED",
+          "connectors": [
+            {
+              "id": "TH4387000100000100030201",
+              "standard": "IEC_62196_T1_COMBO",
+              "power_type": "DC"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,24 +1,34 @@
-const CACHE = "afe-charge-test-v28";
-const CORE = ["./", "./index.html", "./config.js?v=afe-v28", "./i18n.js?v=afe-v28", "./app.js?v=afe-v28", "./api.js?v=afe-v28", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
+const CACHE = "afe-charge-test-v29";
+const CORE = ["./", "./index.html", "./config.js?v=afe-v29", "./i18n.js?v=afe-v29", "./app.js?v=afe-v29", "./api.js?v=afe-v29", "./recording.js?v=afe-v29", "./recording.css?v=afe-v29", "./recording-catalog.json", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("afe-charge-test-") && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", event => {
   const request = event.request;
-  if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/") || request.headers.has("Authorization")) return;
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).then(response => {
-      const copy = response.clone();
-      caches.open(CACHE).then(cache => cache.put("./index.html", copy));
-      return response;
-    }).catch(() => caches.match("./index.html")));
+    const scope = new URL(self.registration.scope).pathname;
+    if (url.pathname !== scope && url.pathname !== scope + "index.html") return;
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      try {
+        const response = await fetch(request);
+        if (response.ok && response.headers.get("content-type")?.includes("text/html")) {
+          await cache.put("./index.html", response.clone());
+        }
+        return response;
+      } catch {
+        return await cache.match("./index.html") || Response.error();
+      }
+    })());
     return;
   }
-  event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => {
-    if (response.ok) caches.open(CACHE).then(cache => cache.put(request, response.clone()));
+  event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(async response => {
+    if (response.ok) await (await caches.open(CACHE)).put(request, response.clone());
     return response;
   })));
 });

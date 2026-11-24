@@ -138,7 +138,7 @@ function startSession(){const s=station(),c=connector(),v=Number(appState.limit)
 function clearDemoData(){if(!confirm('Clear demo sessions, notifications, wallet and preferences on this device?'))return;try{localStorage.removeItem(STORE_KEY)}catch(error){console.warn('AFE Charge: local storage unavailable',error)}store=loadStore();appState.page='find';routeStack.splice(0,routeStack.length,'find');render();toast('Demo data cleared')}
 function render(){if(appState.page==='find')return renderHome();if(appState.page==='station')return renderStation();if(appState.page==='setup')return renderSetup();if(appState.page==='failure')return renderFailure();if(appState.page==='connecting'||appState.page==='guestConnecting')return renderConnecting();if(appState.page==='live')return renderLive();if(appState.page==='summary')return renderSummary();if(appState.page==='history')return renderHistory();if(appState.page==='invoice')return renderInvoice();if(appState.page==='notifications')return renderNotifications();if(appState.page==='profile')return renderProfile();if(appState.page==='payments')return renderPayments();if(appState.page==='fleet')return renderFleetStatement();if(appState.page==='scan')return renderScan();if(appState.page==='guest')return renderGuest();if(appState.page==='wallet')return renderWallet();if(appState.page==='settings')return renderSettings();if(appState.page==='emergency')return renderEmergency();if(appState.page==='feedback')return renderFeedback();if(appState.page==='help')return renderHelp();if(appState.page==='cardForm')return renderCardForm();renderHome()}
 function toast(msg){const root=document.getElementById('toastRoot');if(!root)return;root.innerHTML=`<div class="app-toast">${esc(translateMarkup(String(msg)))}</div>`;clearTimeout(appState.toastTimer);appState.toastTimer=setTimeout(()=>{if(root)root.innerHTML=''},2400)}
-function initApp(){render();window.addEventListener('popstate',()=>{if(appState.page==='connecting'){clearTimeout(appState.connectTimer);appState.active=null}if(routeStack.length>1)routeStack.pop();appState.page=routeStack.at(-1)||'find';appState.transitionDirection='back';render()});window.addEventListener('online',render);window.addEventListener('offline',render)}
+function initApp(){window.addEventListener('popstate',()=>{if(appState.page==='connecting'){clearTimeout(appState.connectTimer);appState.active=null}if(routeStack.length>1)routeStack.pop();appState.page=routeStack.at(-1)||'find';appState.transitionDirection='back';render()});window.addEventListener('online',render);window.addEventListener('offline',render)}
 
 
 
@@ -231,7 +231,7 @@ const renderBaseV14=render;render=function(){const result=renderRouteV14();if(re
 const showPageBaseV14=showPage;showPage=function(page){if(page!=='scan')stopCameraScan();return showPageBaseV14(page)};
 simulateGuestScan=function(){handleScannedChargerCode(document.getElementById('guestCodeInput')?.value||appState.guestCode)};
 window.addEventListener('pagehide',stopCameraScan);window.addEventListener('popstate',()=>{if(appState.page==='scan')stopCameraScan()},{capture:true});
-initApp();startMockStatusFeed();
+initApp();
 
 // v16: four core destinations and a persistent mock wallet ledger.
 try{store.walletAccount=localStorage.getItem('afeWalletAccount')==='fleet'?'fleet':'personal'}catch{store.walletAccount='personal'}
@@ -252,7 +252,6 @@ const openRecordBaseV16=openRecord;openRecord=function(id){appState.recordId=id;
 const finishSessionBaseV16=finishSession;finishSession=function(reason){const active=appState.active;finishSessionBaseV16(reason);const record=active&&store.history.find(r=>r.id===active.id);if(record?.payment==='wallet'){store.walletLedger.unshift({id:record.id,type:'charge',amount:record.actual,created:record.ended,stationName:record.stationName,energy:record.energy,recordId:record.id,demo:true});saveStore()}};
 const renderProfileBaseV16=renderProfile;renderProfile=function(){renderProfileBaseV16();const main=document.querySelector('.app-main');if(main&&!main.querySelector('.profile-cpo-entry'))main.insertAdjacentHTML('afterbegin',`<button class="profile-cpo-entry" onclick="toggleOpsMode();showPage('find')"><span>◉</span><span><b>${store.cpoMode?t('driverView'):t('cpoView')}</b><small>${t('switchDemoView')}</small></span><span>›</span></button>`)};
 function refreshTabSelection(){const active=nav();document.querySelector('.app-nav')?.replaceWith(document.createRange().createContextualFragment(active))}
-render();
 
 function nav(){
   const scanActive=['scan','guest','connecting','guestConnecting'].includes(appState.page),orders=['history','summary','invoice','wallet-entry'].includes(appState.page),mine=['profile','personal','payments','fleet','cardForm','settings','settings-appearance','settings-language','settings-accessibility','settings-support','settings-about','emergency','feedback','help'].includes(appState.page);
@@ -264,7 +263,6 @@ function nav(){
     <button class="nav-scan ${scanActive?'active':''}" aria-label="${t('scan')}" onclick="showPage('scan')"><span class="nav-scan-icon"><svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 7h4v4H7zM14 7h3v3h-3zM14 14h3v3h-3zM7 14h2v3H7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="nav-scan-label">${t('scan')}</span></button>
   </nav>`;
 }
-render();
 
 function walletTransactions(includeFleet=false){
   const topups=store.walletLedger.filter(entry=>entry.type!=='charge').map((entry,index)=>({id:entry.id||`topup-${entry.created||index}`,type:'topup',amount:Number(entry.amount||0)+Number(entry.bonus||0),paid:Number(entry.amount||0),bonus:Number(entry.bonus||0),created:entry.created||Date.now(),stationName:'',energy:0,payment:'wallet'}));
@@ -284,4 +282,3 @@ function topUpWallet(amount,bonus){
   if(root)root.innerHTML=`<div class="app-filter"><section class="app-sheet wallet-topup-sheet wallet-processing" role="status"><div class="wallet-sheet-grab"></div><div class="connection-spinner"></div><h2>${t('topUpProcessing')}</h2><p class="app-muted">${money(amount)} · ${t('simulatedPaymentMethod')}</p><div class="wallet-demo-note">${t('noRealPayment')}</div></section></div>`;
   window.setTimeout(()=>{const entry={id:`TOP-${Date.now().toString(36)}`,type:'topup',amount,bonus,created:Date.now(),demo:true};store.wallet+=amount+bonus;store.walletLedger.unshift(entry);saveStore();if(appState.page==='wallet')renderWallet();toast(`${t('demoTopUpSuccess')} · ${money(amount+bonus)}`)},650);
 }
-render();

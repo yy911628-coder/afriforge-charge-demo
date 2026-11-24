@@ -1,9 +1,7 @@
-// Browser-side configuration for the static PWA.
-// Add a Google Maps JavaScript API browser key here before deployment.
-// Restrict the key by HTTP referrer (your GitHub Pages domain and local test URL)
-// and restrict it to Maps JavaScript API in Google Cloud Console.
-window.AFE_CONFIG = window.AFE_CONFIG || {
-  GOOGLE_MAPS_API_KEY: "AIzaSyDVZhzFPLkDbLcdqn5kv_eHJlXt4KGzO6s",
-  GOOGLE_MAP_ID: "DEMO_MAP_ID"
+// Public configuration for the static recording PWA.
+window.AFE_CONFIG = {
+  AFE_BASE_URL: "https://afe-peach-sandbox-webhook-296426724305.africa-south1.run.app",
+  GOOGLE_MAPS_API_KEY: "",
+  GOOGLE_MAP_ID: "DEMO_MAP_ID",
+  ...window.AFE_CONFIG
 };
-

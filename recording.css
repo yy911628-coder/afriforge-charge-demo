@@ -1,0 +1,67 @@
+.app-main:has(> .afe-recording) {
+  margin-bottom: calc(80px + env(safe-area-inset-bottom));
+  padding-bottom: 18px;
+}
+.afe-recording {
+  display: grid;
+  gap: 14px;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.afe-recording .rec-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.afe-recording h1,
+.afe-recording h2,
+.afe-recording p,
+.afe-recording dl,
+.afe-recording dd {
+  margin: 0;
+}
+.afe-recording .rec-card {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  min-width: 0;
+}
+.afe-recording h2 { font-size: 1.08rem; }
+.afe-recording .rec-card > p { color: var(--muted); line-height: 1.55; }
+.afe-recording label { color: var(--text); font-size: .85rem; font-weight: 650; }
+.afe-recording .app-input,
+.afe-recording .app-select {
+  margin: 0;
+  font-size: 1rem;
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+.afe-recording .rec-heading h1 { margin-top: 4px; }
+.afe-recording .rec-source { color: var(--green-deep); font-weight: 700; }
+.afe-recording .rec-time,
+.afe-recording .rec-target { color: var(--muted); font-size: .88rem; }
+.afe-recording .rec-details { display: grid; gap: 0; }
+.afe-recording .rec-pair {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: .84rem;
+}
+.afe-recording .rec-pair dt { color: var(--muted); flex: 0 0 32%; }
+.afe-recording .rec-pair dd { text-align: end; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.afe-recording .rec-refresh { color: var(--green-deep); background: var(--surface); border: 1px solid var(--line); padding: 8px 13px; border-radius: 14px; }
+.afe-recording button:disabled { opacity: .5; }
+.afe-recording .rec-hero { margin: 0; color:#fff; }
+.afe-recording .rec-hero .rec-receipt { max-width:50%; font-size:.73rem; opacity:.9; text-align:end; }
+.afe-recording .rec-hero .rec-energy { margin:14px 0 18px; }
+.afe-recording .rec-energy strong { font-variant-numeric: tabular-nums; letter-spacing: -.055em; font-size: clamp(2.5rem,11vw,3.8rem); line-height:1.1; }
+.afe-recording .rec-metrics { display:grid; grid-template-columns:1fr 1fr; gap:12px; border-top:1px solid rgba(255,255,255,.3); padding-top:12px; }
+.afe-recording .rec-metrics div { display:grid; gap:3px; }
+.afe-recording .rec-metrics div>span { font-size:.78rem; opacity:.88; }
+.afe-recording .rec-metrics b { font-variant-numeric: tabular-nums; }
+.afe-recording .rec-error { margin: 0; }
