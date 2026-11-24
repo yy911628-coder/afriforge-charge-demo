@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f5f8f5">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -9,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="AFE Charge">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-<title>AFE Charge · Demo</title>
+<title>AFE Charge</title>
 <style>
 :root{color-scheme:light;--bg:#f4f7f4;--surface:#fff;--surface-2:#edf4ee;--text:#182d22;--muted:#627469;--subtle:#89968d;--line:#e1e9e2;--green:#16734b;--green-deep:#10583a;--mint:#e1f1e5;--lime:#d6ee91;--warning-bg:#fff4df;--warning:#745821;--danger-bg:#fff0ee;--danger:#a34339;--shadow:0 8px 28px rgba(25,54,37,.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box}html,body{width:100%;min-width:0;min-height:100%;margin:0;overflow-x:hidden;background:var(--bg);color:var(--text);-webkit-text-size-adjust:100%;overscroll-behavior-x:none}button,input,select,textarea{font:inherit}button{touch-action:manipulation}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #64b987;outline-offset:2px}
@@ -100,14 +101,20 @@ html[data-theme="dark"] .wallet-balance-card{border-color:#6cc99866;background:r
 .app-nav>button:nth-child(-n+4){grid-column:auto!important;grid-row:1!important}.app-nav .nav-scan{display:flex!important;position:absolute;top:auto!important;right:auto;bottom:calc(49px + env(safe-area-inset-bottom) - 14px);left:50%;z-index:25;width:64px;height:72px;max-width:64px;margin:0;padding:0;align-items:center;justify-content:flex-start;gap:4px;border:0;border-radius:0;background:transparent;color:var(--green-deep);box-shadow:none;transform:translateX(-50%)}.app-nav .nav-scan-icon{width:54px;height:54px;flex:none;border:4px solid var(--bg);border-radius:19px;background:var(--green);box-shadow:0 7px 18px color-mix(in srgb,var(--green) 32%,transparent)}.app-nav .nav-scan-label{color:var(--green-deep);font-size:8px;font-weight:800;line-height:1}.app-nav .nav-scan.active .nav-scan-icon{background:var(--green-deep)}
 .app-nav{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 64px minmax(0,1fr) minmax(0,1fr)}.app-nav>button:nth-child(1){grid-column:1!important}.app-nav>button:nth-child(2){grid-column:2!important}.app-nav>button:nth-child(3){grid-column:4!important}.app-nav>button:nth-child(4){grid-column:5!important}
 </style>
-<link rel="stylesheet" href="./recording.css?v=afe-v29">
+<link rel="stylesheet" href="./recording.css?v=afe-v30">
 </head>
-<body><main class="appview" aria-label="AFE Charge app"></main>
-<script src="./config.js?v=afe-v29"></script>
-<script src="./i18n.js?v=afe-v29"></script>
-<script src="./app.js?v=afe-v29"></script>
-<script src="./api.js?v=afe-v29"></script>
-<script src="./recording.js?v=afe-v29"></script>
-<script>if('serviceWorker'in navigator&&location.protocol!=='file:')window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js').catch(()=>{}));</script>
+<body>
+<div class="appview">
+  <div class="app-root">
+    <header class="app-header">
+      <div class="app-brand"><img src="./icon-192.png" width="34" height="34" alt="">AFE Charge</div>
+      <button type="button" id="afe-language" class="rec-refresh" aria-label="Change language">中文 / EN</button>
+    </header>
+    <main id="live-charge" class="app-main afe-recording" aria-busy="true"></main>
+  </div>
+</div>
+<script src="./config.js?v=afe-v30"></script>
+<script src="./api.js?v=afe-v30"></script>
+<script src="./recording.js?v=afe-v30"></script>
+<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js', {updateViaCache:'none'}).catch(() => {}));</script>
 </body></html>
-

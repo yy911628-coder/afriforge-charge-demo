@@ -1,5 +1,5 @@
-const CACHE = "afe-charge-test-v29";
-const CORE = ["./", "./index.html", "./config.js?v=afe-v29", "./i18n.js?v=afe-v29", "./app.js?v=afe-v29", "./api.js?v=afe-v29", "./recording.js?v=afe-v29", "./recording.css?v=afe-v29", "./recording-catalog.json", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
+const CACHE = "afe-charge-test-v30";
+const CORE = ["./index.html", "./config.js?v=afe-v30", "./api.js?v=afe-v30", "./recording.js?v=afe-v30", "./recording.css?v=afe-v30", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).then(() => self.skipWaiting()));
 });
@@ -27,8 +27,7 @@ self.addEventListener("fetch", event => {
     })());
     return;
   }
-  event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(async response => {
-    if (response.ok) await (await caches.open(CACHE)).put(request, response.clone());
-    return response;
-  })));
+  if (CORE.some(asset => new URL(asset, self.registration.scope).href === url.href)) {
+    event.respondWith(caches.open(CACHE).then(async cache => await cache.match(request) || fetch(request)));
+  }
 });
