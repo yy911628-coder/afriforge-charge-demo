@@ -1,9 +1,9 @@
-AFE Charge · iPhone PWA · v37
+AFE Charge · iPhone PWA · v38
 
-在线入口 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v37
+在线入口 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v38
 用 iPhone 的 Safari 打开，点“分享 → 添加到主屏幕”。“我的”“钱包”“订单”均需登录，首页场站与扫码可公开浏览。
 本机验收入口 http://127.0.0.1:4180/ 由 Start-AFE-AccountPreview.ps1 启动。账号保存在本机 local-login.json。注册验证码保存在本机 last-verification-email.json，重置邮件保存在 last-reset-email.json。
-正式新账户须先通过六位邮箱验证码验证。服务端配置 AFE_EMAIL_FROM 和 Secret Manager 中的 AFE_EMAIL_API_KEY 后可使用已验证的 Resend 发件域名。发信开通前暂停新注册，已有账户可登录，并可在“账户安全”查看邮箱验证状态。
+注册邮箱和重置密码使用 SendGrid HTTP API 的六位验证码，15 分钟内有效。同一邮箱每分钟可申请一次，连续输错 3 次需等待 10 分钟。生产 Cloud Run 使用 Secret Manager 挂载的 SENDGRID_API_KEY 和已验证的 SENDGRID_FROM_EMAIL。登录使用邮箱和密码。
 地图使用 Leaflet 1.9.4（BSD-2-Clause，见 leaflet.LICENSE）和 OpenStreetMap。Rivonia 区域底图由 2026-11-24 的公开道路、水系、公园与地名数据绘制，© OpenStreetMap contributors，数据许可 ODbL（https://www.openstreetmap.org/copyright）。该底图随 App 提供。区域中心采用 Rivonia 地名坐标，桩点坐标来自生产 OCPI。
 正式支付需开通 Peach Live 并确定预授权金额。海汇德生产目录、启停回调与实桩计量待双方联调。
 
