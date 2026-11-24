@@ -1,3 +1,11 @@
+AFE Charge · iPhone PWA · v36
+
+在线入口 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v36
+用 iPhone 的 Safari 打开，点“分享 → 添加到主屏幕”。“我的”“钱包”“订单”均需登录，首页场站与扫码可公开浏览。
+本机验收入口 http://127.0.0.1:4180/ 由电脑上的 Start-AFE-AccountPreview.ps1 启动。账号保存在本机 local-login.json。本地邮件写入 last-reset-email.json。两份文件只属于本机验收环境。
+正式注册依赖 Cloud Run 服务身份具有 Firestore 数据访问权限。正式邮件需验证发件域名；正式支付需开通 Peach Live 并确定预授权金额。海汇德生产目录、启停回调与实桩计量待双方联调。
+
+以下为 v21 历史演示说明
 AFE Charge · iPhone PWA demo · v21
 
 Live HTTPS demo
@@ -32,4 +40,3 @@ Guest QR flow, local wallet top-ups, demo card form (only last four digits are s
 
 AFE Charge v7 UX update
 The app now uses a full-viewport mobile layout, safe-area-aware bottom navigation and sheets, light/dark design tokens, a static illustrated map fallback with mock markers, and an animated guest QR scanner plus connection sequence. Language changes re-render the current screen immediately. Local storage failures are handled without crashing.
-
