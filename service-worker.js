@@ -1,14 +1,20 @@
-const CACHE = "afe-charge-test-v30";
-const CORE = ["./index.html", "./config.js?v=afe-v30", "./api.js?v=afe-v30", "./recording.js?v=afe-v30", "./recording.css?v=afe-v30", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
+const CACHE = "afe-charge-production-v31";
+const CORE = ["./index.html", "./config.js?v=afe-v31", "./api.js?v=afe-v31", "./recording.js?v=afe-v31", "./recording.css?v=afe-v31", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE.map(asset => new Request(asset, {cache:"reload"})))).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("afe-charge-test-") && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  const retired = key => key !== CACHE && (key.startsWith("afe-charge-test-") || key.startsWith("afe-charge-production-"));
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(retired).map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
+  // A tab still running the old app may attempt to poll or submit after this worker takes control.
+  if (url.hostname === "afe-peach-sandbox-webhook-296426724305.africa-south1.run.app") {
+    event.respondWith(Response.error());
+    return;
+  }
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/") || request.headers.has("Authorization")) return;
   if (request.mode === "navigate") {
     const scope = new URL(self.registration.scope).pathname;
