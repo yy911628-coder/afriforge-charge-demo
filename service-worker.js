@@ -1,5 +1,5 @@
-const CACHE = "afe-charge-production-v31";
-const CORE = ["./index.html", "./config.js?v=afe-v31", "./api.js?v=afe-v31", "./recording.js?v=afe-v31", "./recording.css?v=afe-v31", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
+const CACHE = "afe-charge-production-v32";
+const CORE = ["./index.html", "./config.js?v=afe-v32", "./api.js?v=afe-v32", "./production-commands.js?v=afe-v32", "./production-payments.js?v=afe-v32", "./recording.js?v=afe-v32", "./recording.css?v=afe-v32", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE.map(asset => new Request(asset, {cache:"reload"})))).then(() => self.skipWaiting()));
 });

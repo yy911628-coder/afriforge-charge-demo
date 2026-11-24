@@ -3,7 +3,7 @@
   "name": "AFE Charge",
   "short_name": "AFE",
   "description": "View charging stations and connector status published by Hardhitter.",
-  "start_url": "./?v=afe-v31",
+  "start_url": "./?v=afe-v32",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

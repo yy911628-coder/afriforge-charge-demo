@@ -30,6 +30,7 @@
     } catch {}
     return false;
   }
+  const payments = productionPayments({tr, esc, pair, render});
   const priorSession = hasPriorSession();
   function esc(input) {
     return String(input ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -134,9 +135,7 @@
         '<dl class="rec-details">'+pair('Location ID',site.id)+pair('EVSE UID',gun?.evse_uid)+pair('Connector ID',gun?.connector_id)+
         pair(tr('CPO status','平台状态'),gun && statusLabel(gun.status))+'</dl></section>';
     }
-    const access='<section class="app-card rec-card"><h2>'+tr('Charging','充电')+'</h2><p>'+
-      tr('Payments and remote start/stop are unavailable in this production app.',
-         '正式版暂未开通支付和远程启停。')+'</p></section>';
+    const access=payments.card(gun);
     const legacy=priorSession ? '<p class="app-notice" role="status">'+
       tr('For an earlier test payment or charging session, contact the test operator with the original reference.',
          '如需查询之前的测试支付或充电会话，请凭原订单号联系测试负责人。')+'</p>' : '';
@@ -155,12 +154,15 @@
     const gun=connectors(selectedSite())[Number(event.target.value)];
     if (gun) { connectorKey=keyForGun(gun); render(); }
   });
+  root.addEventListener('submit', event => payments.submitForm(event,selectedGun()));
   root.addEventListener('click', event => {
     const control=event.target.closest('button');
     if (!control || control.disabled) return;
     if (control.dataset.site!==undefined) {
       chooseSite(locations[Number(control.dataset.site)]); render();
-    } else if (control.dataset.act==='refresh') void refreshSites();
+    } else if (control.dataset.act==='refresh') {
+      void refreshSites(); void payments.loadCapability(); void payments.loadCommands();
+    } else payments.action(control.dataset.act,selectedGun());
   });
   langButton.addEventListener('click',() => {
     chinese=!chinese;
@@ -169,4 +171,7 @@
   });
   render();
   void refreshSites();
+  void payments.loadCapability();
+  void payments.loadCommands();
+  void payments.checkStatus();
 })();

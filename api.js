@@ -11,7 +11,7 @@ class ChargeApiError extends Error {
 }
 
 const AFEApi = (() => {
-  function catalogURL() {
+  function endpoint(path) {
     if (!AFE_BASE_URL) throw new ChargeApiError(0, 'PRODUCTION_BACKEND_NOT_CONFIGURED');
     let base;
     try { base = new URL(AFE_BASE_URL); } catch { throw new ChargeApiError(0, 'INVALID_PRODUCTION_BACKEND'); }
@@ -19,16 +19,23 @@ const AFEApi = (() => {
         base.pathname !== '/' || base.hostname.toLowerCase().includes('sandbox')) {
       throw new ChargeApiError(0, 'INVALID_PRODUCTION_BACKEND');
     }
-    return new URL('/api/ocpi/stations', base.origin);
+    return new URL(path, base.origin);
   }
 
-  async function stations() {
-    const url = catalogURL();
+  async function request(path, pass, body) {
+    const url = endpoint(path);
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(), 35000);
     try {
+      const headers = {Accept: 'application/json'};
+      if (pass !== undefined) {
+        if (!/^[A-Za-z0-9_-]{43}$/.test(pass)) throw new ChargeApiError(0, 'INVALID_OPERATOR_PASS');
+        headers.Authorization = 'Bearer ' + pass;
+      }
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
       const response = await fetch(url, {
-        headers: {Accept: 'application/json'},
+        headers, method: body === undefined ? 'GET' : 'POST',
+        body: body === undefined ? undefined : JSON.stringify(body),
         credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer',
         signal: controller.signal
       });
@@ -42,5 +49,14 @@ const AFEApi = (() => {
       return data;
     } finally { clearTimeout(deadline); }
   }
-  return Object.freeze({stations});
+  return Object.freeze({
+    stations: () => request('/api/ocpi/stations'),
+    paymentCapabilities: () => request('/api/payments/capabilities'),
+    createCheckout: (pass, body) => request('/api/payments/checkout', pass, body),
+    paymentStatus: pass => request('/api/payments/status', pass),
+    commandCapabilities: () => request('/api/ocpi/command-capabilities'),
+    sessionStatus: pass => request('/api/ocpi/session-status', pass),
+    startSession: (pass,target) => request('/api/ocpi/start-session',pass,{target}),
+    stopSession: (pass,target) => request('/api/ocpi/stop-session',pass,{target})
+  });
 })();
