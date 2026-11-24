@@ -10,33 +10,53 @@ function productionPayments({tr, esc, pair, render}) {
   const validAmount = n => typeof n === 'string' && moneyFormat.test(n) && Number(n) > 0;
   const key = 'afe.production.payment.v1.' + AFE_BASE_URL;
   let current = null, capability = null, receipt = null, busy = false, error = '', checkingAccess = false;
-  let capabilityError = '';
+  let capabilityError = '', signedReturnIntent = null, returnEvidence = null;
   const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid});
 
   function save() {
     try {
-      if (current) sessionStorage.setItem(key, JSON.stringify(current));
+      if (current) {
+        const value=JSON.stringify(current);
+        sessionStorage.setItem(key,value);
+        return sessionStorage.getItem(key)===value;
+      }
       else sessionStorage.removeItem(key);
-    } catch {}
+      return true;
+    } catch { return false; }
   }
 
+  function validIntent(order) {
+    const intent=order?.startIntent;
+    return intent?.action==='start_after_pa' && attemptFormat.test(order.id) && intent.id===order.id &&
+      referenceFormat.test(order.reference) && intent.reference===order.reference && validAmount(order.amount) &&
+      intent.amount===order.amount && targetValid(order.target) && targetValid(intent.target) &&
+      targetFields.every(k=>intent.target[k]===order.target[k]) &&
+      Number.isSafeInteger(intent.created) && Date.now()>=intent.created && Date.now()-intent.created<=15*60*1000;
+  }
   function restore() {
     const url = new URL(location.href);
     const fragment = new URLSearchParams(url.hash.slice(1));
+    let saved;
+    try { saved=JSON.parse(sessionStorage.getItem(key)); } catch {}
     if (fragment.has('afe_payment_return')) {
       const pass = fragment.get('afe_payment_return'), id = fragment.get('attempt');
       url.hash = '';
       history.replaceState(null, '', url.pathname + url.search);
       if (passFormat.test(pass) && attemptFormat.test(id)) {
-        current = {pass, id}; save();
+        current = {pass,id};
+        if (saved?.id===id && passFormat.test(saved.pass) && saved.pass!==pass && validIntent(saved)) {
+          Object.assign(current,{amount:saved.amount,reference:saved.reference,target:saved.target});
+          // Take the consent out of storage before any asynchronous work. Reloads,
+          // back navigation and manual receipt lookups can only recover manually.
+          if (save()) signedReturnIntent=saved;
+        } else save();
       } else error = 'INVALID_PAYMENT_RETURN';
       return;
     }
-    try {
-      const saved = JSON.parse(sessionStorage.getItem(key));
-      if (passFormat.test(saved?.pass) && (!saved.id || attemptFormat.test(saved.id)) &&
-          (!saved.target || targetValid(saved.target)) && (!saved.amount || validAmount(saved.amount))) current = saved;
-    } catch {}
+    if (passFormat.test(saved?.pass) && (!saved.id || attemptFormat.test(saved.id)) &&
+        (!saved.target || targetValid(saved.target)) && (!saved.amount || validAmount(saved.amount))) {
+      current=saved; delete current.startIntent; save();
+    }
   }
   restore();
 
@@ -78,7 +98,23 @@ function productionPayments({tr, esc, pair, render}) {
       Object.assign(current, {id:result.attemptId,reference:result.reference,amount:result.amount,target:result.target});
       save(); receipt = result;
     } catch (err) { error = errorCode(err); }
-    finally { busy = false; render(); void commands.query(); }
+    finally { busy = false; render(); returnEvidence=await commands.query(); }
+  }
+  async function finishReturn(selectTarget) {
+    const original=signedReturnIntent;
+    signedReturnIntent=null;
+    if (!original || !validIntent(original) || !returnEvidence || returnEvidence.canCommand!==false ||
+        returnEvidence.attemptId!==original.id || returnEvidence.start || returnEvidence.session.state!=='NOT_STARTED' ||
+        receipt?.status!=='AUTHORIZED' || receipt.attemptId!==original.id || receipt.reference!==original.reference ||
+        !targetFields.every(k=>receipt.target[k]===original.target[k]) || receipt.amount!==original.amount ||
+        current?.id!==original.id || document.hidden) return;
+    const order=current;
+    const verified=await commands.query(original.pass,(pass,value)=>{
+      Object.assign(order,{pass,id:value.attemptId,target:value.target});
+    });
+    if (current!==order || !verified?.canCommand || !validIntent(original) || !save() || document.hidden) return;
+    const gun=selectTarget(original.target);
+    if (commands.mayStart(gun)) await commands.send('start-charge',gun);
   }
   function checkoutURL(raw) {
     let url;
@@ -93,14 +129,17 @@ function productionPayments({tr, esc, pair, render}) {
         gun.status !== 'AVAILABLE' || !targetValid(gun)) return;
     if (capability.amount !== confirmedAmount) { error = 'PAYMENT_AMOUNT_CHANGED'; render(); return; }
     const target = Object.fromEntries(targetFields.map(k => [k,gun[k]]));
-    current = {pass,amount:confirmedAmount,target}; save();
+    current = {pass,amount:confirmedAmount,target};
+    if (!save()) { current=null; error='PAYMENT_SESSION_STORAGE_UNAVAILABLE'; render(); return; }
     busy = true; error = ''; receipt = null; render();
     try {
       const result = await AFEApi.createCheckout(pass, {target,amount:confirmedAmount,currency:'ZAR'});
       requireMatch(result);
       if (result.status !== 'CHECKOUT_CREATED') throw new ChargeApiError(502,'CHECKOUT_UNCONFIRMED');
       const url = checkoutURL(result.redirect_url);
-      Object.assign(current, {id:result.attemptId,reference:result.reference}); save();
+      const startIntent={action:'start_after_pa',created:Date.now(),id:result.attemptId,reference:result.reference,amount:confirmedAmount,target};
+      Object.assign(current,{id:result.attemptId,reference:result.reference,startIntent});
+      if (!save()) throw new ChargeApiError(0,'PAYMENT_SESSION_STORAGE_UNAVAILABLE');
       location.assign(url);
     } catch (err) {
       error = errorCode(err);
@@ -136,9 +175,9 @@ function productionPayments({tr, esc, pair, render}) {
         '<button class="rec-refresh" type="button" data-act="close-payment"'+(busy||commands.isBusy()?' disabled':'')+'>'+
         tr('Close payment view','关闭本次支付视图')+'</button>';
     } else if (capability && commands.permitsCheckout(gun) && gun?.standard === 'IEC_62196_T2_COMBO' && gun.status === 'AVAILABLE') {
-      content='<p>'+tr('Peach will request a temporary hold on your bank card.','Peach 将向你的银行卡申请临时冻结这笔金额。')+'</p>'+
+      content='<p>'+tr('Peach will request a card hold. When the hold is confirmed, AFE will start the selected connector.','Peach 将申请银行卡预授权。预授权确认后，AFE 将启动所选枪口。')+'</p>'+
         '<form class="rec-picker" data-form="checkout" data-amount="'+esc(capability.amount)+'">'+password('checkout-pass')+
-        submit(tr('Continue to Peach · ZAR ','前往 Peach 预授权 · ZAR ')+esc(capability.amount))+'</form>';
+        submit(tr('Preauthorise ZAR ','预授权 ZAR ')+esc(capability.amount)+tr(' and start charging',' 并启动充电'))+'</form>';
     } else {
       content='<p>'+(!AFE_BASE_URL || (!capability && !capabilityError) ?
         tr('Production card payments are not enabled.','正式银行卡支付尚未开通。') :
@@ -173,5 +212,5 @@ function productionPayments({tr, esc, pair, render}) {
     if (name === 'close-payment' && !busy && !commands.isBusy()) { commands.clear(); current = null; receipt = null; error = ''; save(); render(); }
   }
   window.addEventListener('pageshow', event => { if (event.persisted && current) void checkStatus(); });
-  return {card,submitForm,action,loadCapability,loadCommands:commands.load,checkStatus};
+  return {card,submitForm,action,loadCapability,loadCommands:commands.load,checkStatus,finishReturn};
 }

@@ -7,7 +7,7 @@
   let chinese = navigator.language.toLowerCase().startsWith('zh');
   try { const saved = localStorage.getItem('afe.live.language'); if (saved) chinese = saved === 'zh'; } catch {}
   let locations = [], sourceTime = '', stationKey = '', connectorKey = '';
-  let loading = false, catalogError = '';
+  let loading = false, catalogError = '', manuallySelected = false;
   const tr = (en, zh) => chinese ? zh : en;
 
   // Old payment returns and stored attempts belong to their original environment.
@@ -58,6 +58,14 @@
       const first = guns.find(eligible) || guns.find(g=>g.standard==='IEC_62196_T2_COMBO') || guns[0];
       connectorKey = first ? keyForGun(first) : '';
     }
+  }
+  function resumeConnector(target) {
+    if (manuallySelected) return selectedGun();
+    const site=locations.find(s=>s.id===target.location_id && s.country_code===target.country_code && s.party_id===target.party_id);
+    const gun=connectors(site).find(g=>keyForGun(g)===keyForGun(target));
+    if (!gun) return null;
+    stationKey=keyFor(site); connectorKey=keyForGun(gun); render();
+    return gun;
   }
 
   async function refreshSites() {
@@ -152,13 +160,14 @@
   root.addEventListener('change', event => {
     if (event.target.id!=='connector') return;
     const gun=connectors(selectedSite())[Number(event.target.value)];
-    if (gun) { connectorKey=keyForGun(gun); render(); }
+    if (gun) { manuallySelected=true; connectorKey=keyForGun(gun); render(); }
   });
   root.addEventListener('submit', event => payments.submitForm(event,selectedGun()));
   root.addEventListener('click', event => {
     const control=event.target.closest('button');
     if (!control || control.disabled) return;
     if (control.dataset.site!==undefined) {
+      manuallySelected=true;
       chooseSite(locations[Number(control.dataset.site)]); render();
     } else if (control.dataset.act==='refresh') {
       void refreshSites(); void payments.loadCapability(); void payments.loadCommands();
@@ -170,8 +179,6 @@
     render();
   });
   render();
-  void refreshSites();
-  void payments.loadCapability();
-  void payments.loadCommands();
-  void payments.checkStatus();
+  void Promise.all([refreshSites(),payments.loadCapability(),payments.loadCommands(),payments.checkStatus()])
+    .then(()=>payments.finishReturn(resumeConnector));
 })();

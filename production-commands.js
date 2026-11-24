@@ -9,10 +9,10 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   const sessionStates = ['NOT_STARTED','NOT_CHECKED','MATCHED','NOT_FOUND','AMBIGUOUS','INVALID_RECORD','LOOKUP_UNAVAILABLE'];
   const ocpiStates = ['PENDING','ACTIVE','COMPLETED','INVALID','RESERVATION'];
   let capability = null, data = null, busy = false, checkingAccess = false;
-  let error = '', poll, uncertain = false;
+  let error = '', poll, uncertain = false, stopUnconfirmed = false;
   function clear() {
     clearTimeout(poll);
-    data = null; error = ''; uncertain = false;
+    data = null; error = ''; uncertain = false; stopUnconfirmed = false;
   }
   function safeResult(value,order) {
     if (typeof value.canCommand!=='boolean' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value.attemptId) ||
@@ -71,6 +71,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         storeOriginal(pass,value);
       }
       data=value; uncertain=false; pollSoon();
+      return value;
     } catch(e) {
       if (getOrder()===order) { error=e instanceof ChargeApiError?e.code:'SESSION_STATUS_UNAVAILABLE'; uncertain=true; }
     } finally {busy=false;render();}
@@ -88,7 +89,10 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
           !(starting?value.start:value.stop)) throw new ChargeApiError(502,'COMMAND_RESULT_UNVERIFIED');
       data=value;
     } catch(e) {
-      if (getOrder()===order) { error=e instanceof ChargeApiError?e.code:'COMMAND_DELIVERY_UNKNOWN'; uncertain=true; }
+      if (getOrder()===order) {
+        error=e instanceof ChargeApiError?e.code:'COMMAND_DELIVERY_UNKNOWN'; uncertain=true;
+        if (!starting) stopUnconfirmed=true;
+      }
     } finally {busy=false;render();}
     if (getOrder()===order && !uncertain) void query();
   }
@@ -112,6 +116,10 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         pair(tr('Session status','会话状态'),s.status)+pair(tr('Metered energy','已计量电量'),s.kwh!=null ? s.kwh+' kWh' : '')+'</dl>';
       else if (data.start) body+='<p>'+tr('Session verification','会话核验')+' · '+esc(s.state)+'</p>';
       body+=detail('START_SESSION',data.start)+detail('STOP_SESSION',data.stop);
+      const stopFailed=[data.stop?.ack,data.stop?.callback].some(v=>v && v!=='ACCEPTED');
+      if (active() && (stopUnconfirmed || stopFailed || (data.stop && (uncertain || !data.stop.ack)))) {
+        body+='<p role="alert">'+tr('The session is still active. Use Stop on the charger or ask the site operator to end the session.','会话仍在充电。请在桩屏选择“停止充电”，或联系现场运营人员结束本次会话。')+'</p>';
+      }
       if (!data.canCommand && ((capability?.enabled && getPayment()?.status==='AUTHORIZED') || (data.start && !finished()))) {
         body+='<form class="rec-picker" data-form="unlock-commands"><p>'+tr('Enter the original pass to control this connector.','输入本次充电的原始操作通行证以启停枪口。')+'</p>'+
           password('original-pass')+'<button class="rec-refresh" type="submit"'+(busy?' disabled':'')+'>'+tr('Verify original pass','核验原始通行证')+'</button></form>';
@@ -128,5 +136,5 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   }
   document.addEventListener('visibilitychange',()=>{if (!document.hidden && getOrder() && data?.start) void query();});
   function permitsCheckout(gun) { return capability?.enabled===true && same(capability.target,gun); }
-  return {load,query,send,card,clear,permitsCheckout,isBusy:()=>busy};
+  return {load,query,send,card,clear,permitsCheckout,mayStart,isBusy:()=>busy};
 }
