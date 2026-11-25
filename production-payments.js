@@ -87,6 +87,7 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
   }
   async function checkStatus() {
     if (!AFE_BASE_URL || !AFEAuth.token() || !current || busy) return;
+    if(current.funding==='wallet'){await commands.query();return;}
     busy = true; error = ''; receipt = null; render();
     try {
       const result = await AFEApi.paymentStatus(current.pass);
@@ -156,6 +157,38 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
       error = errorCode(err);
     } finally { busy = false; render(); }
   }
+  async function startWallet(gun,vehicleId){
+    const account=getAccount();
+    if(busy || current || !vehicleId || !account.wallet()?.canFundCharge || !commands.permitsCheckout(gun) || gun?.status!=='AVAILABLE' || gun.tariff?.status!=='verified')return;
+    const target=Object.fromEntries(targetFields.map(k=>[k,gun[k]])),key='afe.intent.'+AFE_BASE_URL;
+    const choice=JSON.stringify(['wallet',target,vehicleId]);
+    let intent;try{intent=JSON.parse(sessionStorage.getItem(key));}catch{}
+    if(intent?.choice!==choice || !attemptFormat.test(intent.id)){intent={choice,id:crypto.randomUUID()};sessionStorage.setItem(key,JSON.stringify(intent));}
+    busy=true;error='';render();
+    try{
+      const grant=await AFEApi.account('/me/charge-intents','POST',{funding:'wallet',target,vehicleId,requestId:intent.id});
+      if(grant.funding!=='wallet' || !passFormat.test(grant.pass) || !attemptFormat.test(grant.attemptId) ||
+        !targetFields.every(k=>grant.target?.[k]===target[k]))throw new ChargeApiError(502,'WALLET_ORDER_MISMATCH');
+      current={pass:grant.pass,id:grant.attemptId,target,funding:'wallet'};
+      if(!save()){current=null;throw new ChargeApiError(0,'PAYMENT_SESSION_STORAGE_UNAVAILABLE');}
+      sessionStorage.removeItem(key);
+      const checked=await commands.query();
+      if(checked?.canCommand && !document.hidden && commands.mayStart(gun))await commands.send('start-charge',gun);
+    }catch(e){error=errorCode(e);}
+    finally{busy=false;void account.loadWallet();render();}
+  }
+  function walletChoice(gun){
+    const account=getAccount(),info=account.wallet();
+    if(!gun)return '';
+    let body='<h3>'+tr('Pay from wallet','使用钱包余额')+'</h3>';
+    if(!account.active())return body+'<button class="rec-refresh" data-page="wallet">'+tr('Sign in to view wallet','登录查看钱包')+'</button>';
+    if(info)body+='<p>'+tr('Available','可用余额')+' R'+(info.balanceCents/100).toFixed(2)+' · '+tr('Start above','启动须大于')+' R'+(info.minimumCents/100).toFixed(2)+'</p>';
+    if(info?.canFundCharge && commands.permitsCheckout(gun) && gun.standard==='IEC_62196_T2_COMBO' && gun.status==='AVAILABLE' && gun.tariff?.status==='verified'){
+      body+='<p>'+tr('AFE requests a stop as your balance runs low. The final charging bill is deducted from your wallet.','余额接近用尽时，AFE 会向桩请求停充，最终按实际账单扣费。')+'</p><form class="rec-picker" data-form="wallet-start">'+
+        account.chargeControls(true)+(account.hasVehicles()?submit(tr('Start with wallet','用钱包启动充电')):'')+'</form>';
+    }
+    return body+'<button class="rec-refresh" type="button" data-page="wallet">'+tr('Open wallet','查看钱包')+'</button>';
+  }
   function password(id) {
     return '<label for="'+id+'">'+tr('Operator pass','操作通行证')+'</label>'+
       '<input class="app-input" id="'+id+'" type="password" autocomplete="off" autocapitalize="none" '+
@@ -174,7 +207,10 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
   }
   function card(gun) {
     let content = '';
-    if (current) {
+    if(current?.funding==='wallet'){
+      content='<p>'+tr('This session uses your AFE wallet. The final bill and any outstanding amount appear in Orders and Wallet.','本次使用 AFE 钱包。最终账单及待补金额可在订单和钱包中查看。')+'</p>'+
+        '<button class="rec-refresh" type="button" data-act="close-payment"'+(busy||commands.isBusy()?' disabled':'')+'>'+tr('Close order view','关闭订单视图')+'</button>';
+    }else if (current) {
       content = '<p role="status">'+(busy ? tr('Checking with Peach…','正在联系 Peach…') : receipt ? statusText(receipt.status) :
         tr('The preauthorisation has not been verified.','预授权结果待核验。'))+'</p>';
       const t = receipt?.target || current.target;
@@ -195,14 +231,15 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
         capabilityError ? tr('Payment service unavailable','暂时无法读取支付配置')+' · '+esc(capabilityError) :
         tr('Preauthorisation requires an available CCS2 connector enabled for remote start.','请选择已开通远程启动且当前可用的 CCS2 枪口进行预授权。'))+'</p>';
     }
-    if (error) content += '<p role="alert" class="rec-alert">'+tr('Payment could not be verified','支付结果尚未核验')+' · '+esc(error)+'</p>';
+    if (error) content += '<p role="alert" class="rec-alert">'+tr('Check the payment or charging status','请核对付款或充电状态')+' · '+esc(error)+'</p>';
     if (!current && getAccount().active()) content+='<button class="rec-refresh" type="button" data-page="orders">'+tr('My orders','我的订单')+'</button>';
-    return '<section class="app-card rec-card"><h2>'+tr('Card preauthorisation','银行卡预授权')+'</h2>'+content+commands.card(gun)+'</section>';
+    return '<section class="app-card rec-card"><h2>'+(current?.funding==='wallet'?tr('Wallet charging','钱包充电'):tr('Pay for charging','充电支付'))+'</h2>'+(!current?walletChoice(gun)+'<h3>'+tr('Bank card via Peach','Peach 银行卡')+'</h3>':'')+content+commands.card(gun)+'</section>';
   }
   function submitForm(event, gun) {
     const form = event.target;
     if (!form.matches('form[data-form]')) return;
     event.preventDefault();
+    if(form.dataset.form==='wallet-start'){void startWallet(gun,new FormData(form).get('vehicleId'));return;}
     if(form.dataset.form==='checkout'){
       if(!busy && getAccount().hasVehicles()){
         const v=new FormData(form);void checkout(gun,v.get('vehicleId'),form.dataset.amount,!!v.get('saveCard') && !v.get('cardId'),v.get('cardId') || null);
@@ -231,7 +268,7 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
   async function resume(grant){
     if(busy || commands.isBusy())return;
     if(!passFormat.test(grant.pass) || !attemptFormat.test(grant.attemptId) || !targetValid(grant.target))throw new ChargeApiError(502,'PAYMENT_ORDER_MISMATCH');
-    commands.clear();receipt=null;current={pass:grant.pass,id:grant.attemptId,target:grant.target,amount:grant.amount};
+    commands.clear();receipt=null;current={pass:grant.pass,id:grant.attemptId,target:grant.target,amount:grant.amount,...(grant.funding==='wallet' && {funding:'wallet'})};
     save();await checkStatus();
   }
   return {card,resume,submitForm,action,loadCapability,loadCommands:commands.load,checkStatus,finishReturn,

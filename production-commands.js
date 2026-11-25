@@ -31,18 +31,20 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   function mayStart(gun) {
     const p=getPayment();
     return data?.canCommand && !uncertain && !data.start && data.session.state==='NOT_STARTED' &&
-      capability?.enabled && p?.status==='AUTHORIZED' && p.attemptId===data.attemptId && same(p.target,data.target) &&
+      capability?.enabled && ((getOrder()?.funding==='wallet' && data.funding==='wallet') ||
+      (p?.status==='AUTHORIZED' && p.attemptId===data.attemptId && same(p.target,data.target))) &&
       same(capability.target,data.target) && same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' && gun.status==='AVAILABLE';
   }
   function pollSoon() {
     clearTimeout(poll);
-    if (data?.start && !finished() && !['REJECTED','NOT_SUPPORTED'].includes(data.start.ack) &&
+    const waitingForBill=data?.funding==='wallet' && !['SETTLED','REJECTED'].includes(data.wallet?.settlement);
+    if (data?.start && (!finished() || waitingForBill) && !['REJECTED','NOT_SUPPORTED'].includes(data.start.ack) &&
         !['REJECTED','FAILED'].includes(data.start.callback) && !document.hidden) {
       poll=setTimeout(() => {
         if (document.hidden) return;
         if (document.activeElement?.matches('input,select')) {pollSoon();return;}
         void query();
-      },12000);
+      },finished()?30000:12000);
     }
   }
   async function load() {
@@ -107,7 +109,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   }
   function card(gun) {
     const order=getOrder();
-    if (!order) return '<p>'+(capability?.enabled?tr('Remote charging requires a verified preauthorisation.','须核验预授权后才能远程启动。'):
+    if (!order) return '<p>'+(capability?.enabled?tr('Choose how to pay to start charging.','选择支付方式后即可启动充电。'):
       tr('Remote start is not enabled.','远程启动尚未开通。'))+'</p>';
     let body='';
     if (data) {
@@ -115,6 +117,14 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
       if (s.state==='MATCHED') body+='<dl class="rec-details">'+pair(tr('CPO session','CPO 会话'),s.id)+
         pair(tr('Session status','会话状态'),s.status)+pair(tr('Metered energy','已计量电量'),s.kwh!=null ? s.kwh+' kWh' : '')+'</dl>';
       else if (data.start) body+='<p>'+tr('Session verification','会话核验')+' · '+esc(s.state)+'</p>';
+      if(data.funding==='wallet' && data.wallet){
+        const w=data.wallet,amount=c=>'R'+(c/100).toFixed(2);
+        if(w.lowBalanceStop)body+='<p role="status">'+tr('AFE requested a stop because the wallet balance is running low.','余额接近用尽，AFE 已请求停充。')+'</p>';
+        if(Number.isSafeInteger(w.costCents))body+='<dl class="rec-details">'+pair(tr('Final charging cost','最终充电费'),amount(w.costCents))+
+          (w.shortfallCents?pair(tr('Shortfall on this order','本单待补差额'),amount(w.shortfallCents)):'')+'</dl>';
+        else if(finished())body+='<p>'+tr('Waiting for the final charging bill.','正在等待海汇德的最终账单。')+'</p>';
+        else if(Number.isSafeInteger(w.estimatedCents))body+='<dl class="rec-details">'+pair(tr('Estimated metered cost','按已计量电量估算'),amount(w.estimatedCents))+'</dl>';
+      }
       body+=detail('START_SESSION',data.start)+detail('STOP_SESSION',data.stop);
       const stopFailed=[data.stop?.ack,data.stop?.callback].some(v=>v && v!=='ACCEPTED');
       if (active() && (stopUnconfirmed || stopFailed || (data.stop && (uncertain || !data.stop.ack)))) {
