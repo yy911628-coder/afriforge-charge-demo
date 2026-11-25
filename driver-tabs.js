@@ -113,6 +113,27 @@ function loadDriverQrDecoder() {
   return driverQrDecoder;
 }
 
+function readDriverQrFrame(video, context, decode, centerOnly) {
+  // Decode the same part of the camera image that the driver sees with object-fit: cover.
+  const cover = Math.max(video.clientWidth / video.videoWidth, video.clientHeight / video.videoHeight);
+  if (!cover) return;
+  let width = Math.min(video.videoWidth, video.clientWidth / cover);
+  let height = Math.min(video.videoHeight, video.clientHeight / cover);
+  if (centerOnly) {
+    // Isolate the screen code from reflections and surrounding text without losing its white border.
+    width = height = Math.min(width, height) * 0.55;
+  }
+  const scale = Math.min(1, (centerOnly ? 360 : 840) / Math.max(width, height));
+  const outWidth = Math.max(1, Math.round(width * scale));
+  const outHeight = Math.max(1, Math.round(height * scale));
+  const canvas = context.canvas;
+  if (canvas.width !== outWidth) canvas.width = outWidth;
+  if (canvas.height !== outHeight) canvas.height = outHeight;
+  context.drawImage(video, (video.videoWidth - width) / 2, (video.videoHeight - height) / 2,
+    width, height, 0, 0, outWidth, outHeight);
+  return decode(context.getImageData(0, 0, outWidth, outHeight).data, outWidth, outHeight)?.data;
+}
+
 async function driverScanCamera({root,tr,onCode}) {
   if (driverCamera) return;
   const video = root.querySelector('[data-scan-video]');
@@ -121,6 +142,8 @@ async function driverScanCamera({root,tr,onCode}) {
   const open = root.querySelector('[data-act="scan-camera"]');
   const close = root.querySelector('[data-act="stop-camera"]');
   const idleText = tr('Scan the QR code on the charger','请扫描桩屏上的二维码');
+  const aimHint = tr('Still looking. Centre the whole QR code and tilt the phone to avoid glare. You can also enter the charger code below.',
+    '还没读到二维码。请把完整二维码对准中央，稍微调整角度避开反光，也可以在下方输入枪口编号。');
   const unavailable = tr('Camera unavailable. Enter the charger code below.','相机暂不可用，请在下方输入充电桩编号。');
   if (!navigator.mediaDevices?.getUserMedia) { status.textContent = unavailable; return; }
   const capture = {video,status,open,close,idleText,stream:null,timer:null};
@@ -145,20 +168,19 @@ async function driverScanCamera({root,tr,onCode}) {
     const context = canvas.getContext('2d',{willReadFrequently:true});
     if (!context) throw new Error('CANVAS_UNAVAILABLE');
     status.textContent = idleText;
+    const started = performance.now();
+    let centerOnly = true;
     function frame() {
       if (driverCamera !== capture) return;
       if (!video.isConnected || document.hidden) { driverStopCamera(); return; }
       try {
         if (video.readyState >= 2 && video.videoWidth && video.videoHeight) {
-          const scale = Math.min(1, 840 / Math.max(video.videoWidth,video.videoHeight));
-          canvas.width = Math.max(1,Math.round(video.videoWidth * scale));
-          canvas.height = Math.max(1,Math.round(video.videoHeight * scale));
-          context.drawImage(video,0,0,canvas.width,canvas.height);
-          const pixels = context.getImageData(0,0,canvas.width,canvas.height);
-          const value = decode(pixels.data,pixels.width,pixels.height)?.data;
-          if (value) { driverStopCamera(); onCode(value); return; }
+          const value = readDriverQrFrame(video, context, decode, centerOnly);
+          if (value) { driverStopCamera(); onCode(value, status); return; }
+          centerOnly = !centerOnly;
         }
       } catch { driverStopCamera(); status.textContent = unavailable; return; }
+      if (performance.now() - started >= 4000 && status.textContent === idleText) status.textContent = aimHint;
       capture.timer = setTimeout(frame,250);
     }
     frame();

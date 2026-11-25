@@ -9,6 +9,7 @@
   try { const saved = localStorage.getItem('afe.live.language'); if (saved) chinese = saved === 'zh'; } catch {}
   let locations = [], sourceTime = '', stationKey = '', connectorKey = '';
   let loading = false, catalogError = '', manuallySelected = false;
+  let pendingScan = null;
   const tr = (en, zh) => chinese ? zh : en;
 
   // Old payment returns and stored attempts belong to their original environment.
@@ -100,7 +101,13 @@
     } catch (error) {
       locations = []; sourceTime = ''; chooseSite(null);
       catalogError = error instanceof ChargeApiError ? error.code : 'FEED_UNREACHABLE';
-    } finally { loading = false; render(); }
+    } finally {
+      loading = false;
+      render();
+      const scan = pendingScan;
+      pendingScan = null;
+      if (scan?.feedback.isConnected) showCode(scan.raw, scan.feedback);
+    }
   }
   function statusLabel(raw) {
     switch (raw) {
@@ -209,7 +216,14 @@
     if(changed) account.enter(next);
     render();
   }
-  function showCode(raw) {
+  function showCode(raw, feedback = root.querySelector('[data-scan-message]')) {
+    if (!feedback) return;
+    pendingScan = null;
+    if (loading && !sourceTime) {
+      pendingScan = {raw, feedback};
+      feedback.textContent = tr('Code received. Looking up the connector…','已读到编号，正在查询枪口…');
+      return;
+    }
     const match = driverResolveCode(raw,locations);
     if (match.kind === 'report') return navigate('report');
     if (match.kind === 'connector') {
@@ -220,10 +234,18 @@
         return navigate('station');
       }
     }
-    const msg = root.querySelector('[data-scan-message]');
-    if (msg) msg.textContent = match.kind === 'ambiguous' ?
-      tr('This code matches several connectors. Select your station from the map.','此编号对应多个枪口，请从地图选择场站。') :
-      tr('This code could not be matched to a published connector. Check the code on the charger.','暂时无法匹配此枪口，请核对桩屏上的编号。');
+    if (catalogError) {
+      feedback.textContent = tr('The station list is unavailable. Refresh it on Home and try again.','暂时无法读取场站目录。请到首页刷新，再试一次。');
+      return;
+    }
+    if (match.kind === 'ambiguous') {
+      feedback.textContent = tr('This code matches several connectors. Select your station from the map.','此编号对应多个枪口，请从地图选择场站。');
+      return;
+    }
+    const id = raw.trim();
+    const label = /^[A-Za-z0-9_-]{1,36}$/.test(id) ? ` (${id})` : '';
+    feedback.textContent = tr(`No published connector matches this code${label}. Check the code on the charger.`,
+      `场站目录中找不到这个编号${label}。请核对枪口上的二维码。`);
   }
   function language() {
     chinese = !chinese;
@@ -239,6 +261,7 @@
     if (event.target.matches('form[data-account-form]')) { void account.submit(event); return; }
     if (event.target.matches('form[data-driver-code]')) {
       event.preventDefault();
+      driverStopCamera();
       showCode(event.target.elements.code.value);
     } else payments.submitForm(event,selectedGun());
   });
@@ -256,7 +279,10 @@
       case 'report-site': return navigate('report');
       case 'scan': return navigate('scan');
       case 'language': return language();
-      case 'scan-camera': return void driverScanCamera({root,tr,onCode:showCode});
+      case 'scan-camera':
+        pendingScan = null;
+        root.querySelector('[data-scan-message]').textContent = '';
+        return void driverScanCamera({root,tr,onCode:showCode});
       case 'stop-camera': return driverStopCamera();
       case 'refresh':
         void refreshSites(); void payments.loadCapability(); void payments.loadCommands(); return;
