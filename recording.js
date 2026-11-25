@@ -50,7 +50,7 @@
     if (!site) return [];
     return site.evses.flatMap(e => e.connectors.map(c => ({
       country_code:site.country_code, party_id:site.party_id, location_id:site.id, evse_uid:e.uid,
-      connector_id:c.id, standard:c.standard, status:e.status
+      connector_id:c.id, standard:c.standard, status:e.status, last_updated:e.last_updated
     })));
   }
   const keyForGun = (gun) => JSON.stringify(idFields.map(k=>gun[k]));
@@ -153,7 +153,8 @@
         '<p>' + tr('No connectors published for this station.','该场站尚未发布枪口。') + '</p>') +
       '<dl class="rec-details">' + pair('Location ID',site.id) + pair('EVSE UID',gun?.evse_uid) +
       pair('Connector ID',gun?.connector_id) + pair(tr('CPO status','平台状态'),gun && statusLabel(gun.status)) +
-      '</dl><p class="rec-time">' + tr('Updated · UTC ','更新于 UTC ') + esc(sourceTime) + '</p></section>' + payments.card(gun);
+      (gun ? pair(tr('Status updated by CPO','平台状态更新时间'),gun.last_updated || tr('Not reported','未上报')) : '') +
+      '</dl><p class="rec-time">' + tr('Catalog checked by AFE · UTC ','AFE 读取目录时间 · UTC ') + esc(sourceTime) + '</p></section>' + payments.card(gun);
   }
   function browse() {
     if (page === 'home') return driverHome({tr,esc,locations,site:selectedSite(),loading,catalogError,configured:!!AFE_BASE_URL,sourceTime});
