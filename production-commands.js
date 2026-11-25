@@ -103,13 +103,14 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   function button(action,label) {
     return '<button class="rec-refresh" type="button" data-act="'+action+'"'+(busy?' disabled':'')+'>'+label+'</button>';
   }
-  function detail(label,c) {
+  function detail(label,c,stationView) {
     if (!c) return '';
-    return '<h3>'+label+'</h3><dl class="rec-details">'+pair(tr('Requested UTC','请求时间 UTC'),when(c.requestedAt))+
-      pair(tr('CPO response','CPO 受理结果'),c.ack)+pair(tr('Acknowledged UTC','受理时间 UTC'),when(c.acknowledgedAt))+
-      pair(tr('Command result','指令回调结果'),c.callback)+pair(tr('Callback UTC','回调时间 UTC'),when(c.callbackAt))+'</dl>';
+    const timestamp=(en,zh,value)=>stationView?'':pair(tr(en,zh),when(value));
+    return '<h3>'+label+'</h3><dl class="rec-details">'+timestamp('Requested UTC','请求时间 UTC',c.requestedAt)+
+      pair(tr('CPO response','CPO 受理结果'),c.ack)+timestamp('Acknowledged UTC','受理时间 UTC',c.acknowledgedAt)+
+      pair(tr('Command result','指令回调结果'),c.callback)+timestamp('Callback UTC','回调时间 UTC',c.callbackAt)+'</dl>';
   }
-  function card(gun) {
+  function card(gun,stationView=false) {
     const order=getOrder();
     const readiness = permitsCheckout(gun) ? tr('Remote commands are enabled for this connector.','此枪口已开通远程启停。')
       : capability?.reason==='PRODUCTION_APP_USER_NOT_CONFIGURED' && listed(gun)
@@ -119,7 +120,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     let body='';
     if (data) {
       const s=data.session;
-      if (s.state==='MATCHED') body+='<dl class="rec-details">'+pair(tr('CPO session','CPO 会话'),s.id)+
+      if (s.state==='MATCHED') body+='<dl class="rec-details">'+(stationView?'':pair(tr('CPO session','CPO 会话'),s.id))+
         pair(tr('Session status','会话状态'),s.status)+pair(tr('Metered energy','已计量电量'),s.kwh!=null ? s.kwh+' kWh' : '')+'</dl>';
       else if (data.start) body+='<p>'+tr('Session verification','会话核验')+' · '+esc(s.state)+'</p>';
       if(['wallet','card'].includes(data.funding) && data.wallet){
@@ -132,7 +133,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         else if(finished())body+='<p>'+tr('Waiting for the final charging bill.','正在等待海汇德的最终账单。')+'</p>';
         else if(Number.isSafeInteger(w.estimatedCents))body+='<dl class="rec-details">'+pair(tr('Estimated metered cost','按已计量电量估算'),amount(w.estimatedCents))+'</dl>';
       }
-      body+=detail('START_SESSION',data.start)+detail('STOP_SESSION',data.stop);
+      body+=detail('START_SESSION',data.start,stationView)+detail('STOP_SESSION',data.stop,stationView);
       const stopFailed=[data.stop?.ack,data.stop?.callback].some(v=>v && v!=='ACCEPTED');
       if (active() && (stopUnconfirmed || stopFailed || (data.stop && (uncertain || !data.stop.ack)))) {
         body+='<p role="alert">'+tr('The session is still active. Use Stop on the charger or ask the site operator to end the session.','会话仍在充电。请在桩屏选择“停止充电”，或联系现场运营人员结束本次会话。')+'</p>';

@@ -33,7 +33,8 @@
     return false;
   }
   const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account});
-  const account=driverAccount({root,tr,esc,navigate,render,getPage:()=>page,getPayments:()=>payments});
+  const account=driverAccount({root,tr,esc,navigate,render,getPage:()=>page,getPayments:()=>payments,
+    getChargeConnector:()=>page==='station' ? connectorKey : ''});
   const priorSession = hasPriorSession();
   let page = 'home';
   let renderedPage = '', lastContent = '', lastNav = '';
@@ -51,7 +52,7 @@
     if (!site) return [];
     return site.evses.flatMap(e => e.connectors.map(c => ({
       country_code:site.country_code, party_id:site.party_id, location_id:site.id, evse_uid:e.uid,
-      connector_id:c.id, standard:c.standard, status:e.status, last_updated:e.last_updated, tariff:c.tariff
+      connector_id:c.id, standard:c.standard, status:e.status, tariff:c.tariff
     })));
   }
   const keyForGun = (gun) => JSON.stringify(idFields.map(k=>gun[k]));
@@ -124,26 +125,48 @@
     return '<button class="app-back" type="button" data-page="home"><span aria-hidden="true">‹</span>' +
       tr('Charging stations','充电场站') + '</button>';
   }
+  const rivoniaSite = {country_code:'CN', party_id:'HHD', id:'ZA41020001000001'};
+  const rivoniaGuns = [
+    ['A','ZA41020001000001000100','ZA4102000100000100010001'],
+    ['B','ZA41020001000001000101','ZA4102000100000100010101']
+  ];
+  function gunPicker(site, guns) {
+    // Keep the physical left/right labels even if the CPO reorders or omits a connector.
+    const slots = keyFor(site) === keyFor(rivoniaSite) ? rivoniaGuns.map(([letter, uid, id]) => ({
+      label: tr('Connector ' + letter, letter + ' 枪'),
+      gun: guns.find(g => g.evse_uid === uid && g.connector_id === id)
+    })) : [];
+    for (const gun of guns) {
+      if (!slots.some(slot => slot.gun === gun)) {
+        const number = slots.length + 1;
+        slots.push({label:tr('Connector ' + number, '枪口 ' + number),gun});
+      }
+    }
+    if (!slots.length) return '<p>' + tr('No connectors published for this station.','该场站尚未发布枪口。') + '</p>';
+    const tiles = slots.map(({label,gun}) => {
+      const value = gun && keyForGun(gun);
+      const attrs = gun ? ' value="' + esc(value) + '"' + (value === connectorKey ? ' checked' : '') : ' disabled';
+      const standard = gun?.standard === 'IEC_62196_T2_COMBO' ? 'CCS2' : gun?.standard;
+      const state = gun ? statusLabel(gun.status) : tr('Status unavailable','暂无状态');
+      return '<label class="gun-option"><input type="radio" name="charge-connector"' + attrs + '>' +
+        '<span class="gun-tile"><strong>' + label + '</strong><span class="gun-mark" aria-hidden="true"></span>' +
+        (standard ? '<span class="gun-type">' + esc(standard) + '</span>' : '') +
+        '<span class="gun-status" data-status="' + esc(gun?.status || '') + '">' + esc(state) + '</span></span></label>';
+    }).join('');
+    return '<fieldset class="gun-picker"><legend>' + tr('Select a connector','选择充电枪') +
+      '</legend><div class="gun-grid">' + tiles + '</div></fieldset>';
+  }
   function reportDetail() {
     return backButton() + '<h1>382 Rivonia</h1><p class="app-muted">Edenburg, Sandton</p>' +
-      '<section class="app-card rec-card"><h2>' + tr('Connectors','充电枪') +
-      '</h2><p>' + tr('The charging order report lists two connectors. Live status is pending.',
-      '场站的充电订单报表记录了两把枪，实时状态待接入。') + '</p><dl class="rec-details">' +
-      pair(tr('Local connector 0','本地枪号 0'),'#01-1') + pair(tr('Local connector 1','本地枪号 1'),'#01-2') +
-      '</dl></section>';
+      '<section class="app-card rec-card">' + gunPicker(rivoniaSite, []) +
+      '<p>' + tr('Live connector status is unavailable.','暂时无法读取枪口实时状态。') + '</p></section>';
   }
   function tariffDetails(rate) {
-    if (!rate) return '';
-    if (rate.status !== 'verified') {
-      return '<p class="rec-time">'+tr('The current charging rate is unavailable.','当前费率暂无法核实。')+'</p>';
-    }
-    const unit = esc(rate.currency) + '/kWh';
-    return '<section class="rec-tariff"><div class="rec-tariff-heading"><h3>'+tr('Charging rate','充电费率')+'</h3>'+
-      '<span>'+tr('All day','全天')+' · 00:00–24:00</span></div>'+
-      '<p class="rec-tariff-total"><strong>'+esc(rate.total_per_kwh)+'</strong> '+unit+'</p>'+
-      '<dl class="rec-details">'+pair(tr('Electricity','电费'),rate.electricity_per_kwh+' '+rate.currency+'/kWh')+
-      pair(tr('Service fee','服务费'),rate.service_per_kwh+' '+rate.currency+'/kWh')+
-      pair(tr('Tariff ID','费率编号'),rate.id)+'</dl></section>';
+    if (rate?.status !== 'verified') return '<p class="rec-time">' + tr('The current charging rate is unavailable.','当前充电单价暂无法核实。') + '</p>';
+    const currency = rate.currency === 'ZAR' ? 'R' : esc(rate.currency) + ' ';
+    return '<section class="rec-tariff"><div class="rec-tariff-heading"><h3>' + tr('Charging fee','充电费用') + '</h3>' +
+      (rate.all_day ? '<span>' + tr('All day','全天') + '</span>' : '') + '</div>' +
+      '<p class="rec-tariff-total"><strong>' + currency + esc(rate.total_per_kwh) + '</strong><span>/kWh</span></p></section>';
   }
   function stationDetail() {
     const site = selectedSite();
@@ -162,19 +185,10 @@
       directions = '<a class="driver-map-link" target="_blank" rel="noopener noreferrer" href="' +
         esc(destination.href) + '">' + tr('View station on map ↗','查看场站位置 ↗') + '</a>';
     }
-    const options = guns.map((g,i) => '<option value="' + i + '"' + (keyForGun(g) === connectorKey ? ' selected' : '') + '>' +
-      esc(g.evse_uid + ' / ' + g.connector_id + ' · ' + (g.standard === 'IEC_62196_T2_COMBO' ? 'CCS2' : g.standard || '—') +
-      ' · ' + statusLabel(g.status)) + '</option>').join('');
-    return backButton() + '<h1>' + esc(site.name || site.id) + '</h1><p class="app-muted">' +
+    return backButton() + '<h1>' + esc(site.name || tr('Charging station','充电场站')) + '</h1><p class="app-muted">' +
       esc([site.address,site.city].filter(Boolean).join(', ')) + '</p>' + directions +
-      '<section class="app-card rec-card"><h2>' + tr('Connectors','充电枪') + '</h2>' +
-      (guns.length ? '<div class="rec-picker"><label for="connector">' + tr('Select connector','选择枪口') +
-        '</label><select id="connector" class="app-select">' + options + '</select></div>' :
-        '<p>' + tr('No connectors published for this station.','该场站尚未发布枪口。') + '</p>') +
-      tariffDetails(gun?.tariff) + '<dl class="rec-details">' + pair('Location ID',site.id) + pair('EVSE UID',gun?.evse_uid) +
-      pair('Connector ID',gun?.connector_id) + pair(tr('CPO status','平台状态'),gun && statusLabel(gun.status)) +
-      (gun ? pair(tr('Status updated by CPO','平台状态更新时间'),gun.last_updated || tr('Not reported','未上报')) : '') +
-      '</dl><p class="rec-time">' + tr('Catalog checked by AFE · UTC ','AFE 读取目录时间 · UTC ') + esc(sourceTime) + '</p></section>' + payments.card(gun);
+      '<section class="app-card rec-card station-connectors">' + gunPicker(site,guns) +
+      (gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
   }
   function browse() {
     if (page === 'home') return driverHome({tr,esc,locations,site:selectedSite(),loading,catalogError,configured:!!AFE_BASE_URL,sourceTime});
@@ -253,9 +267,15 @@
     render();
   }
   root.addEventListener('change', event => {
-    if (page !== 'station' || event.target.id !== 'connector') return;
-    const gun = connectors(selectedSite())[Number(event.target.value)];
-    if (gun) { manuallySelected = true; connectorKey = keyForGun(gun); render(); }
+    if (event.target.matches('select[data-charge-card]')) { payments.chooseCard(event.target.value); return; }
+    if (page !== 'station' || !event.target.matches('input[name="charge-connector"]:checked')) return;
+    const gun = connectors(selectedSite()).find(g => keyForGun(g) === event.target.value);
+    if (gun) {
+      manuallySelected = true; connectorKey = keyForGun(gun);
+      history.replaceState({afeView:page,stationKey,connectorKey},'');
+      render();
+      root.querySelector('input[name="charge-connector"]:checked')?.focus({preventScroll:true});
+    }
   });
   root.addEventListener('submit', event => {
     if (event.target.matches('form[data-account-form]')) { void account.submit(event); return; }
@@ -305,7 +325,20 @@
   langButton.addEventListener('click',language);
   history.replaceState({afeView:page},'');
   render();
-  const ready=account.start().then(next=>{if(page==='home' || page==='account-loading')navigate(next,false);});
-  void Promise.all([refreshSites(),payments.loadCapability(),payments.loadCommands(),ready])
+  const sitesReady=refreshSites();
+  const ready=account.start().then(async next=>{
+    const returned=account.takeCardReturn();
+    if (returned) {
+      await sitesReady;
+      const site=locations.find(s=>connectors(s).some(g=>keyForGun(g)===returned));
+      if (site && (page==='home' || page==='account-loading')) {
+        chooseSite(site); connectorKey=returned; manuallySelected=true; next='station';
+        history.replaceState({afeView:next,stationKey,connectorKey},'');
+      }
+    }
+    if(page==='home' || page==='account-loading') navigate(next,false);
+    else if (page==='station' && account.active()) { render(); void account.loadWallet(); }
+  });
+  void Promise.all([sitesReady,payments.loadCapability(),payments.loadCommands(),ready])
     .then(async()=>{if(account.active()){await payments.checkStatus();await payments.finishReturn(resumeConnector);}});
 })();

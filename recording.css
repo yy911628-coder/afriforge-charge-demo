@@ -54,13 +54,36 @@
 }
 .afe-recording .rec-pair dt { color: var(--muted); flex: 0 0 32%; }
 .afe-recording .rec-pair dd { text-align: end; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.rec-tariff { display: grid; gap: 7px; padding: 12px 14px; border-radius: 13px; background: var(--surface-2); }
-.rec-tariff-heading { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.gun-picker { margin: 0; padding: 0; min-inline-size: 0; border: 0; }
+.gun-picker legend { padding: 0; margin-bottom: .7rem; font-size: 1.08rem; font-weight: 700; }
+.gun-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .65rem; }
+.gun-option { position: relative; display: block; min-width: 0; cursor: pointer; }
+.gun-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.gun-tile { height: 100%; display: grid; grid-template-columns: 1fr auto; align-content: start; align-items: center; gap: .25rem .35rem;
+  padding: .8rem; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); color: var(--text); }
+.gun-tile strong { font-size: 1.12rem; }
+.gun-mark { width: 1rem; height: 1rem; border: 1.5px solid var(--muted); border-radius: 50%; }
+.gun-option input:checked + .gun-tile { background: var(--mint); border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+.gun-option input:checked + .gun-tile .gun-mark { border: 5px solid var(--green-deep); background: white; }
+.gun-option input:focus-visible + .gun-tile { outline: 2px solid var(--green-deep); outline-offset: 3px; }
+.gun-option input:disabled + .gun-tile { color: var(--muted); background: var(--surface-2); cursor: default; }
+.gun-type,.gun-status { grid-column: 1 / -1; font-size: .8rem; font-weight: 500; }
+.gun-type { color: var(--muted); }
+.gun-status { display: flex; align-items: center; gap: .35rem; margin-top: .3rem; }
+.gun-status::before { content: ''; width: .5rem; height: .5rem; border-radius: 50%; background: var(--muted); }
+.gun-status[data-status=AVAILABLE]::before { background: var(--green); }
+.gun-status:is([data-status=CHARGING],[data-status=RESERVED])::before { background: #a86b16; }
+.afe-recording > .station-connectors + .rec-card { margin-top: 14px; }
+.rec-tariff { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .5rem 1rem;
+  padding: .75rem .9rem; border-radius: 13px; background: var(--surface-2); }
+.rec-tariff-heading { display: grid; gap: .15rem; }
 .rec-tariff-heading h3 { margin: 0; font-size: .92rem; }
 .rec-tariff-heading span { color: var(--muted); font-size: .77rem; }
-.rec-tariff-total { color: var(--green-deep); font-variant-numeric: tabular-nums; }
-.rec-tariff-total strong { font-size: 1.55rem; }
-.rec-tariff .rec-pair:last-child { border-bottom: 0; }
+.rec-tariff-total { color: var(--green-deep); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rec-tariff-total strong { font-size: 1.4rem; }
+.rec-tariff-total span { margin-left: .15rem; font-size: .85rem; }
+.station-card-link summary { min-height: 44px; align-content: center; font-weight: 650; }
+.station-card-link .acct-form { margin-top: .5rem; }
 .afe-recording .rec-refresh { color: var(--green-deep); background: var(--surface); border: 1px solid var(--line); padding: 8px 13px; border-radius: 14px; }
 .afe-recording button:disabled { opacity: .5; }
 .afe-recording .rec-hero { margin: 0; color:#fff; }

@@ -1,6 +1,6 @@
 'use strict';
 
-function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
+function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getChargeConnector}) {
   const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','orders','notifications']);
   const publicPages=new Set(['login','register','forgot','reset']);
   let profile=null,orders=[],ordersState='',willVisit='',emailHint='',notice='',working=false,ordersLoad=0;
@@ -27,12 +27,24 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
   });
   const requested=entry.searchParams.get('account');
   let initial=resetCode?'reset':['delete','login','wallet','register','forgot'].includes(requested)?requested:null;
-  if(requested==='wallet' && entry.searchParams.has('card_link')){
+  const cardReturnKey='afe.card-link.connector.'+AFE_BASE_URL;
+  const cardLinkReturn=requested==='wallet' && entry.searchParams.has('card_link');
+  if(cardLinkReturn){
     notice=entry.searchParams.get('card_link')==='verified'?tr('Card linked.','银行卡已绑定。'):tr('Card verification was not completed. You can try again.','银行卡验证未完成，可以重新绑定。');
     entry.searchParams.delete('card_link');
   }
   if(requested){entry.searchParams.delete('account');history.replaceState(null,'',entry.pathname+entry.search+entry.hash);}
   const api=(path,method,body)=>AFEApi.account(path,method,body);
+  function takeCardReturn() {
+    if (!cardLinkReturn) return '';
+    try {
+      const raw=sessionStorage.getItem(cardReturnKey);
+      sessionStorage.removeItem(cardReturnKey);
+      const saved=JSON.parse(raw);
+      if (profile?.user.uid && saved?.owner===profile.user.uid && saved.until>Date.now() && typeof saved.connector==='string') return saved.connector;
+    } catch {}
+    return '';
+  }
   const button=(page,en,zh)=>'<button type="button" class="acct-row" data-page="'+page+'">'+tr(en,zh)+'<span aria-hidden="true">›</span></button>';
   const action=(op,text,id='')=>'<button type="button" class="rec-refresh" data-account="'+op+'" data-id="'+esc(id)+'">'+text+'</button>';
   const field=(name,label,type='text',attrs='',value='')=>'<label class="acct-field">'+label+'<input class="app-input" name="'+name+'" type="'+type+'" '+attrs+' value="'+esc(value)+'"></label>';
@@ -164,6 +176,14 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       (item.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(item.shortfallCents):'')+
       (item.repaidCents?' · '+tr('Applied to outstanding cost','已抵扣欠费')+' '+money(item.repaidCents):'')+'</p></article>').join('');
     return card(main)+card('<h2>'+tr('Wallet activity','钱包流水')+'</h2>'+(rows || '<p>'+tr('No transactions yet.','暂无交易记录。')+'</p>'));
+  }
+  function cardBinding() {
+    if (!wallet) return (walletState==='error' ? action('reload-wallet',tr('Retry loading card services','重新读取绑卡服务')) :
+      '<p role="status">'+tr('Checking card services…','正在读取绑卡服务…')+'</p>') + feedback();
+    if (!wallet.cardDirectEnabled) return '<p>'+tr('Peach card linking is awaiting activation.','Peach 正式绑卡待开通。')+'</p>'+feedback();
+    return form('bind-card','<label class="acct-check"><input type="checkbox" name="consent" required> '+
+      tr('I authorise AFE to debit this card for the final bill of each charging session I start with it. I can unlink it after settlement.',
+        '我授权 AFE 按我选择此卡启动的每次充电最终账单扣款，结清后可解绑。')+'</label>',tr('Link a bank card','绑定银行卡'))+feedback();
   }
   function openTopup(url){
     let dest;
@@ -344,7 +364,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
     if(page==='wallet')return title(tr('Wallet','钱包'))+walletPanel()+card('<h2>'+tr('Payment methods','支付方式')+'</h2>'+
       (cards.length?cards.map(c=>'<article class="acct-item"><p>'+esc(c.brand)+' ···· '+esc(c.last4)+'</p>'+action('unlink',tr('Unlink card','解绑银行卡'),c.id)+'</article>').join(''):
       '<p>'+tr('No linked cards.','尚未绑定银行卡。')+'</p>')+
-      (wallet?.cardDirectEnabled?form('bind-card','<label class="acct-check"><input type="checkbox" name="consent" required> '+tr('I authorise AFE to debit this card for the final bill of each charging session I start with it. I can unlink it after settlement.','我授权 AFE 按我选择此卡启动的每次充电最终账单扣款，结清后可解绑。')+'</label>',tr('Link a bank card','绑定银行卡')):wallet?'<p>'+tr('Peach card linking is awaiting activation.','Peach 正式绑卡待开通。')+'</p>':'')+feedback())+(getPayments().hasOrder()?getPayments().card(null):'');
+      cardBinding())+(getPayments().hasOrder()?getPayments().card(null):'');
     if(page==='orders')return title(tr('Orders','订单'))+(getPayments().hasOrder()?getPayments().card(null):'')+card(
       (ordersState==='loading'?'<p>'+tr('Loading orders…','正在读取订单…')+'</p>':ordersState==='error'?action('reload-orders',tr('Retry loading orders','重新加载订单')):
       orders.length?orders.map(o=>'<article class="acct-item"><h2>'+esc(o.target.location_id)+' · '+esc(o.target.connector_id)+'</h2><p>'+
@@ -388,8 +408,13 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
     try {
       if(op==='bind-card'){
         if(!v.consent)return true;
+        const connector=getChargeConnector(),owner=profile.user.uid;
         const result=await api('/me/cards/bind','POST',{consent:'afe-variable-charge-v1'}),url=new URL(result.url);
         if(url.origin!==new URL(AFE_BASE_URL).origin || url.pathname!=='/api/cards/bind/page' || !/^[\w-]{43}$/.test(url.searchParams.get('state') || ''))throw new Error('Invalid card binding address');
+        try {
+          if(connector) sessionStorage.setItem(cardReturnKey,JSON.stringify({connector,owner,until:Date.now()+30*60000}));
+          else sessionStorage.removeItem(cardReturnKey);
+        } catch {}
         location.assign(url.href);
       }else if(op==='topup'){
         const choice=Number(v.amount).toFixed(2),key=topupKey();
@@ -452,6 +477,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
   async function act(op,id){
     if(working)return;working=true;
     try{
+      if(op==='station-login'){willVisit='station';navigate('login');return;}
       if(op==='reload-notifications'){await loadNotifications();return;}
       if(op==='reload-wallet'){await loadWallet();return;}
       if(op==='continue-topup'){if(wallet?.pendingTopup?.redirect_url)openTopup(wallet.pendingTopup.redirect_url);return;}
@@ -491,6 +517,6 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
     if(next==='login' && profile)next='profile';
     return target(next);
   }
-  return {screen,target,enter,start,submit,act,directCards:()=>(profile?.cards || []).filter(c=>c.direct),chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
+  return {screen,target,enter,start,submit,act,cardBinding,takeCardReturn,savedCards:()=>profile?.cards || [],chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
     handles:page=>page==='account-loading'||protectedPages.has(page)||publicPages.has(page)};
 }
