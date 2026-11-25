@@ -1,9 +1,10 @@
-AFE Charge · iPhone PWA · v43
+AFE Charge · iPhone PWA · v44
 
 在 iPhone 上使用
-1. 用 Safari 打开 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v43
+1. 用 Safari 打开 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v44
 2. 点“分享”→“添加到主屏幕”。首页可查看场站与枪口，“我的”“钱包”“订单”需要登录。
 3. 打开 382 Rivonia，在“选择枪口”中切换，查看枪口状态与充电费率。右上角可切换中英文。
+4. 点“扫码”并允许相机，扫描桩屏上对应枪口的二维码。#01-1 为 ZA41020001000001000100，#01-2 为 ZA41020001000001000101。场站详情会显示该枪口的远程启停状态。
 
 邮箱注册与找回密码
 在“我的”选择“注册新账户”。输入邮箱后，将最新邮件中的六位验证码填入 App，再设置密码并确认两份协议。验证码 15 分钟内有效，60 秒后可重新发送。登录页的“忘记密码”也使用邮箱验证码。

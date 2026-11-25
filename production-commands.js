@@ -31,9 +31,9 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   function mayStart(gun) {
     const p=getPayment();
     return data?.canCommand && !uncertain && !data.start && data.session.state==='NOT_STARTED' &&
-      capability?.enabled && ((['wallet','card'].includes(getOrder()?.funding) && data.funding===getOrder().funding) ||
+      permitsCheckout(data.target) && ((['wallet','card'].includes(getOrder()?.funding) && data.funding===getOrder().funding) ||
       (p?.status==='AUTHORIZED' && p.attemptId===data.attemptId && same(p.target,data.target))) &&
-      same(capability.target,data.target) && same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' && gun.status==='AVAILABLE';
+      same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' && gun.status==='AVAILABLE';
   }
   function pollSoon() {
     clearTimeout(poll);
@@ -52,7 +52,9 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     checkingAccess=true;
     try {
       const value=await AFEApi.commandCapabilities();
-      capability=value.enabled===true && targetValid(value.target) ? value : {enabled:false};
+      const targets=value.targets===undefined && targetValid(value.target) ? [value.target] : value.targets;
+      capability=Array.isArray(targets) && targets.every(targetValid)
+        ? {enabled:value.enabled===true,targets,reason:value.reason} : {enabled:false,targets:[]};
     } catch { capability=null; }
     finally {checkingAccess=false;render();}
   }
@@ -109,8 +111,11 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   }
   function card(gun) {
     const order=getOrder();
-    if (!order) return '<p>'+(capability?.enabled?tr('Choose how to pay to start charging.','选择支付方式后即可启动充电。'):
-      tr('Remote start is not enabled.','远程启动尚未开通。'))+'</p>';
+    const readiness = permitsCheckout(gun) ? tr('Remote commands are enabled for this connector.','此枪口已开通远程启停。')
+      : capability?.reason==='PRODUCTION_APP_USER_NOT_CONFIGURED' && listed(gun)
+        ? tr('Connector configured. Remote charging awaits AFE’s operator identity.','此枪口已配置，远程启停待确认 AFE 的服务商身份。')
+        : tr('Remote charging is unavailable for this connector.','此枪口的远程启停暂不可用。');
+    if (!order) return '<p>'+readiness+'</p>';
     let body='';
     if (data) {
       const s=data.session;
@@ -142,10 +147,11 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     }
     if (error) body+='<p role="alert">'+tr('Check the CPO session status','请核对 CPO 会话状态')+' · '+esc(error)+'</p>';
     if (AFE_BASE_URL) body+=button('session-status',tr('Check charging status','查询充电状态'));
-    if (!capability?.enabled && !data?.start) body+='<p>'+tr('Remote start is not enabled.','远程启动尚未开通。')+'</p>';
+    if (!permitsCheckout(gun) && !data?.start) body+='<p>'+readiness+'</p>';
     return '<section class="rec-card"><h3>'+tr('Remote charging','远程充电')+'</h3>'+body+'</section>';
   }
   document.addEventListener('visibilitychange',()=>{if (!document.hidden && getOrder() && data?.start) void query();});
-  function permitsCheckout(gun) { return capability?.enabled===true && same(capability.target,gun); }
+  function listed(gun) { return capability?.targets.some(t=>same(t,gun))===true; }
+  function permitsCheckout(gun) { return capability?.enabled===true && listed(gun); }
   return {load,query,send,card,clear,permitsCheckout,mayStart,isBusy:()=>busy};
 }
