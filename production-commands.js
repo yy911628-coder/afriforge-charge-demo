@@ -31,13 +31,13 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   function mayStart(gun) {
     const p=getPayment();
     return data?.canCommand && !uncertain && !data.start && data.session.state==='NOT_STARTED' &&
-      capability?.enabled && ((getOrder()?.funding==='wallet' && data.funding==='wallet') ||
+      capability?.enabled && ((['wallet','card'].includes(getOrder()?.funding) && data.funding===getOrder().funding) ||
       (p?.status==='AUTHORIZED' && p.attemptId===data.attemptId && same(p.target,data.target))) &&
       same(capability.target,data.target) && same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' && gun.status==='AVAILABLE';
   }
   function pollSoon() {
     clearTimeout(poll);
-    const waitingForBill=data?.funding==='wallet' && !['SETTLED','REJECTED'].includes(data.wallet?.settlement);
+    const waitingForBill=['wallet','card'].includes(data?.funding) && !['SETTLED','REJECTED','PAYMENT_REQUIRED'].includes(data.wallet?.settlement);
     if (data?.start && (!finished() || waitingForBill) && !['REJECTED','NOT_SUPPORTED'].includes(data.start.ack) &&
         !['REJECTED','FAILED'].includes(data.start.callback) && !document.hidden) {
       poll=setTimeout(() => {
@@ -72,7 +72,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         if (!value.canCommand) throw new ChargeApiError(403,'ORIGINAL_OPERATOR_PASS_REQUIRED');
         storeOriginal(pass,value);
       }
-      data=value; uncertain=false; pollSoon();
+      data=value; uncertain=false; pollSoon();window.dispatchEvent(new Event('afe-charge-update'));
       return value;
     } catch(e) {
       if (getOrder()===order) { error=e instanceof ChargeApiError?e.code:'SESSION_STATUS_UNAVAILABLE'; uncertain=true; }
@@ -85,7 +85,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     if (starting ? !mayStart(gun) : !active() || !!data.stop) return;
     clearTimeout(poll); busy=true; error=''; render();
     try {
-      const value=starting ? await AFEApi.startSession(order.pass,data.target) : await AFEApi.stopSession(order.pass,data.target);
+      const value=starting ? await AFEApi.startSession(order.pass,data.target,['wallet','card'].includes(order.funding)) : await AFEApi.stopSession(order.pass,data.target);
       if (getOrder()!==order) return;
       if (!safeResult(value,order) || value.attemptId!==data.attemptId || !same(value.target,data.target) ||
           !(starting?value.start:value.stop)) throw new ChargeApiError(502,'COMMAND_RESULT_UNVERIFIED');
@@ -117,8 +117,10 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
       if (s.state==='MATCHED') body+='<dl class="rec-details">'+pair(tr('CPO session','CPO 会话'),s.id)+
         pair(tr('Session status','会话状态'),s.status)+pair(tr('Metered energy','已计量电量'),s.kwh!=null ? s.kwh+' kWh' : '')+'</dl>';
       else if (data.start) body+='<p>'+tr('Session verification','会话核验')+' · '+esc(s.state)+'</p>';
-      if(data.funding==='wallet' && data.wallet){
+      if(['wallet','card'].includes(data.funding) && data.wallet){
         const w=data.wallet,amount=c=>'R'+(c/100).toFixed(2);
+        if(data.funding==='card' && w.settlement==='PAYMENT_REQUIRED')body+='<p role="alert">'+tr('Card payment declined. The bill is outstanding.','银行卡扣款失败，本单仍待支付。')+'</p>';
+        if(data.funding==='card' && w.settlement==='PAYMENT_PENDING')body+='<p role="status">'+tr('Checking the card payment with Peach…','正在向 Peach 核实扣款。')+'</p>';
         if(w.lowBalanceStop)body+='<p role="status">'+tr('AFE requested a stop because the wallet balance is running low.','余额接近用尽，AFE 已请求停充。')+'</p>';
         if(Number.isSafeInteger(w.costCents))body+='<dl class="rec-details">'+pair(tr('Final charging cost','最终充电费'),amount(w.costCents))+
           (w.shortfallCents?pair(tr('Shortfall on this order','本单待补差额'),amount(w.shortfallCents)):'')+'</dl>';

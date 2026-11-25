@@ -1,5 +1,5 @@
-const CACHE = "afe-charge-production-v41";
-const CORE = ["./index.html", "./leaflet.js", "./leaflet.css", "./rivonia-map.png", "./account-session.js?v=afe-v41", "./account-ui.js?v=afe-v41", "./account.css?v=afe-v41", "./legal.html", "./config.js?v=afe-v41", "./api.js?v=afe-v41", "./production-commands.js?v=afe-v41", "./production-payments.js?v=afe-v41", "./driver-home.js?v=afe-v41", "./driver-tabs.js?v=afe-v41", "./jsQR.js", "./recording.js?v=afe-v41", "./recording.css?v=afe-v41", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
+const CACHE = "afe-charge-production-v42";
+const CORE = ["./index.html", "./leaflet.js", "./leaflet.css", "./rivonia-map.png", "./account-session.js?v=afe-v42", "./account-ui.js?v=afe-v42", "./account.css?v=afe-v42", "./legal.html", "./config.js?v=afe-v42", "./api.js?v=afe-v42", "./production-commands.js?v=afe-v42", "./production-payments.js?v=afe-v42", "./driver-home.js?v=afe-v42", "./driver-tabs.js?v=afe-v42", "./jsQR.js", "./recording.js?v=afe-v42", "./recording.css?v=afe-v42", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE.map(asset => new Request(asset, {cache:"reload"})))).then(() => self.skipWaiting()));
 });

@@ -70,7 +70,7 @@ function driverResolveCode(raw, locations) {
       for (const connector of evse.connectors) {
         const identity = [site.country_code,site.party_id,site.id,evse.uid,connector.id];
         const qualified = identity.map(encodeURIComponent).join('/');
-        if (code === qualified || (connector.id.length >= 8 && code === connector.id)) {
+        if (code === qualified || (connector.id.length >= 8 && code === connector.id) || (evse.uid.length >= 8 && code === evse.uid)) {
           matches.push({kind:'connector',siteIndex,evseUid:evse.uid,connectorId:connector.id});
         }
       }

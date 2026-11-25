@@ -1,7 +1,7 @@
 'use strict';
 
 function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
-  const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','orders']);
+  const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','orders','notifications']);
   const publicPages=new Set(['login','register','forgot','reset']);
   let profile=null,orders=[],ordersState='',willVisit='',emailHint='',notice='',working=false,ordersLoad=0;
   let wallet=null,walletState='',walletRequest=0;
@@ -27,6 +27,10 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
   });
   const requested=entry.searchParams.get('account');
   let initial=resetCode?'reset':requested==='delete'?'delete':requested==='login'?'login':requested==='wallet'?'wallet':null;
+  if(requested==='wallet' && entry.searchParams.has('card_link')){
+    notice=entry.searchParams.get('card_link')==='verified'?tr('Card linked.','银行卡已绑定。'):tr('Card verification was not completed. You can try again.','银行卡验证未完成，可以重新绑定。');
+    entry.searchParams.delete('card_link');
+  }
   if(requested){entry.searchParams.delete('account');history.replaceState(null,'',entry.pathname+entry.search+entry.hash);}
   const api=(path,method,body)=>AFEApi.account(path,method,body);
   const button=(page,en,zh)=>'<button type="button" class="acct-row" data-page="'+page+'">'+tr(en,zh)+'<span aria-hidden="true">›</span></button>';
@@ -58,6 +62,8 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       WALLET_TOPUP_PENDING:['You already have a pending top-up. Check it below.','已有一笔待确认充值，请查看该笔付款。'],
       TOPUP_STATUS_UNCONFIRMED:['Peach has not confirmed the payment yet. You can check again.','Peach 尚未确认这笔付款，可稍后刷新。'],
       TOPUP_DELIVERY_UNCONFIRMED:['Check your pending top-up before paying again.','请先查看待确认的充值记录。'],
+      CARD_IN_USE:['This card is used by a session awaiting settlement.','此卡有一笔充电订单正在结算，结清后可解绑。'],
+      CARD_DIRECT_NOT_CONFIGURED:['Peach card payments are awaiting activation.','Peach 正式绑卡扣款待开通。'],
       WALLET_TOPUP_NOT_CONFIGURED:['Peach top-ups are not available yet.','Peach 正式充值尚未开通。'],
       INVALID_WALLET_AMOUNT:['Enter a positive rand amount with up to two decimals.','请输入大于零的兰特金额，最多两位小数。'],
       INVALID_LOGIN:['Email or password is incorrect.','邮箱或密码不正确。'],PASSWORD_INCORRECT:['Check your current password.','当前密码不正确。'],
@@ -86,7 +92,41 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       DELETION_PENDING:['Deletion is in progress. Re-enter your password to finish.','账户正在删除，请重新输入密码以完成注销。']};
     return errors[e.code]?tr(...errors[e.code]):tr('The request did not complete. Try again.','请求未完成，请重试。');
   }
-  async function refresh(){profile=await api('/me');return profile;}
+  let notifications=[],notificationOwner='',notifying=false,notificationError=false;
+  function notificationText(n){
+    const amount=money(n.costCents || 0).replace(/^R\s*/,'');
+    switch(n.kind){
+      case 'STARTED':return tr('[AFE Charge] Your vehicle has started charging.','【AFE Charge】您的车辆已开始充电。');
+      case 'CARD_PAID':return tr('[AFE Charge] Charging ended. Your card ending '+n.last4+' was charged R '+amount+'.','【AFE Charge】充电结束，已从您尾号 '+n.last4+' 的银行卡扣款 R '+amount+'。');
+      case 'WALLET_SETTLED':return n.shortfallCents?tr('[AFE Charge] Charging ended. Wallet payment applied. Outstanding: '+money(n.shortfallCents)+'.','【AFE Charge】充电结束，钱包已抵扣，剩余待补 '+money(n.shortfallCents)+'。'):
+        tr('[AFE Charge] Charging ended. Your wallet was charged R '+amount+'.','【AFE Charge】充电结束，已从钱包扣款 R '+amount+'。');
+      case 'CARD_DECLINED':return tr('[AFE Charge] Card payment declined. Outstanding: R '+amount+'.','【AFE Charge】银行卡扣款失败，待支付 R '+amount+'。');
+      case 'NO_CHARGE':return tr('[AFE Charge] Charging ended. The final bill is R0.00.','【AFE Charge】充电结束，本次应付 R0.00。');
+      default:return '';
+    }
+  }
+  function toast(items){
+    const message=document.createElement('aside');message.className='charge-toast';message.setAttribute('role','status');
+    message.textContent=items.map(notificationText).join('\n');document.body.append(message);setTimeout(()=>message.remove(),6500);
+  }
+  async function loadNotifications(){
+    const uid=profile?.user?.uid;if(!uid || notifying || document.hidden)return;
+    notifying=true;
+    try{
+      const {notifications:items}=await api('/me/notifications');
+      if(profile?.user.uid!==uid || !Array.isArray(items))return;
+      const key='afe.notifications.'+AFE_BASE_URL+'.'+uid;
+      let seen;try{seen=JSON.parse(localStorage.getItem(key));}catch{}
+      const fresh=Array.isArray(seen)?items.filter(x=>!seen.includes(x.id)).reverse():[];
+      if(fresh.length)toast(fresh);
+      localStorage.setItem(key,JSON.stringify(items.map(x=>x.id)));
+      notifications=items;notificationOwner=uid;notificationError=false;
+    }catch{notificationError=true;}finally{notifying=false;if(getPage()==='notifications')render();}
+  }
+  setInterval(loadNotifications,12000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void loadNotifications();});
+  window.addEventListener('afe-charge-update',()=>void loadNotifications());
+  async function refresh(){profile=await api('/me');void loadNotifications();return profile;}
   async function loadOrders(){
     const n=++ordersLoad;ordersState='loading';render();
     try{const value=await api('/me/orders');if(n!==ordersLoad)return;orders=value.orders;ordersState='ready';}
@@ -128,7 +168,8 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
   function openTopup(url){
     let dest;
     try{dest=new URL(url);}catch{}
-    if(dest?.origin!=='https://secure.peachpayments.com' || dest.username || dest.password || dest.hash)throw new ChargeApiError(502,'INVALID_CHECKOUT_URL');
+    const local=location.hostname==='127.0.0.1' && dest?.origin===location.origin && dest.pathname==='/local/topup';
+    if((!local && dest?.origin!=='https://secure.peachpayments.com') || dest.username || dest.password || dest.hash)throw new ChargeApiError(502,'INVALID_CHECKOUT_URL');
     location.assign(dest.href);
   }
   async function checkMail(){
@@ -143,6 +184,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
   function enter(page){
     notice='';
     if(['wallet','station'].includes(page) && profile)void loadWallet();
+    if(page==='notifications' && profile)void loadNotifications();
     if(page==='orders' && profile)void loadOrders();
     if(['register','email-verify','forgot'].includes(page))void checkMail();
   }
@@ -201,7 +243,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       return title(tr('Profile','我的'))+card('<div class="acct-person"><div class="acct-avatar" aria-hidden="true">'+esc(Array.from(name)[0]?.toUpperCase())+
         '</div><div><h2>'+esc(name)+'</h2><p>'+esc(user.email)+'</p></div></div>'+
         button('profile-edit','Edit profile','编辑个人资料')+button('vehicles','My vehicles','车辆管理')+
-        button('wallet','Wallet and cards','钱包与银行卡')+button('security','Account security','账户安全')+button('settings','Settings and legal','设置与法律信息'))+
+        button('wallet','Wallet and cards','钱包与银行卡')+button('notifications','Notifications','通知中心')+button('security','Account security','账户安全')+button('settings','Settings and legal','设置与法律信息'))+
         card(action('logout',tr('Sign out','退出登录'))+feedback());
     }
     const toProfile=back('profile',tr('Profile','我的'));
@@ -234,14 +276,19 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       '<p>'+tr('Your sign-in, profile, vehicles, saved payment methods and personal order list will be deleted. Financial and charging records required for reconciliation or by law may be retained.',
       '注销将删除登录信息、个人资料、车辆、已保存的支付方式和个人订单列表。依法或为结算需要保留的支付和充电记录可能继续保存。')+'</p>'+
       form('delete',pw('password',tr('Confirm your password','输入当前密码'),false),tr('Delete my account','注销我的账户'))+feedback());
+    if(page==='notifications'){
+      const list=notificationOwner===user.uid?notifications:[];
+      return toProfile+title(tr('Notifications','通知中心'))+card((list.map(n=>'<article class="acct-item"><p>'+esc(notificationText(n))+'</p><small>'+esc(new Date(n.createdAt).toLocaleString())+'</small></article>').join('') || '<p>'+tr('No charging notifications yet.','暂无充电通知。')+'</p>')+
+        (notificationError?'<p>'+tr('Notifications could not be loaded.','暂时无法读取通知。')+'</p>':'')+action('reload-notifications',tr('Refresh','刷新')));
+    }
     if(page==='wallet')return title(tr('Wallet','钱包'))+walletPanel()+card('<h2>'+tr('Payment methods','支付方式')+'</h2>'+
       (cards.length?cards.map(c=>'<article class="acct-item"><p>'+esc(c.brand)+' ···· '+esc(c.last4)+'</p>'+action('unlink',tr('Unlink card','解绑银行卡'),c.id)+'</article>').join(''):
-      '<p>'+tr('No saved cards. You can save a card by giving permission at your first available Peach checkout.',
-        '尚未绑卡。Peach 支付开通后，可在首次充电付款时授权保存卡片。')+'</p>')+feedback())+(getPayments().hasOrder()?getPayments().card(null):'');
+      '<p>'+tr('No linked cards.','尚未绑定银行卡。')+'</p>')+
+      (wallet?.cardDirectEnabled?form('bind-card','<label class="acct-check"><input type="checkbox" name="consent" required> '+tr('I authorise AFE to debit this card for the final bill of each charging session I start with it. I can unlink it after settlement.','我授权 AFE 按我选择此卡启动的每次充电最终账单扣款，结清后可解绑。')+'</label>',tr('Link a bank card','绑定银行卡')):wallet?'<p>'+tr('Peach card linking is awaiting activation.','Peach 正式绑卡待开通。')+'</p>':'')+feedback())+(getPayments().hasOrder()?getPayments().card(null):'');
     if(page==='orders')return title(tr('Orders','订单'))+(getPayments().hasOrder()?getPayments().card(null):'')+card(
       (ordersState==='loading'?'<p>'+tr('Loading orders…','正在读取订单…')+'</p>':ordersState==='error'?action('reload-orders',tr('Retry loading orders','重新加载订单')):
       orders.length?orders.map(o=>'<article class="acct-item"><h2>'+esc(o.target.location_id)+' · '+esc(o.target.connector_id)+'</h2><p>'+
-      esc(new Date(o.createdAt).toLocaleString())+' · '+(o.funding==='wallet'?tr('Wallet','钱包')+' · '+(Number.isSafeInteger(o.costCents)?money(o.costCents):o.settlement==='REJECTED'?tr('Start declined','启动被拒'):o.settlement==='NOT_STARTED'?tr('Awaiting start','待启动'):tr('Awaiting final bill','待结算'))+(o.lowBalanceStop?' · '+tr('Low-balance stop requested','已请求低余额停充'):'')+(o.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(o.shortfallCents):''):'ZAR '+esc(o.amount))+'</p>'+action('order',tr('View order','查看订单'),o.id)+'</article>').join(''):
+      esc(new Date(o.createdAt).toLocaleString())+' · '+(['card','wallet'].includes(o.funding)?(o.funding==='card'?tr('Bank card','银行卡')+(o.last4?' ···· '+esc(o.last4):''):tr('Wallet','钱包'))+' · '+(Number.isSafeInteger(o.costCents)?money(o.costCents):o.settlement==='REJECTED'?tr('Start declined','启动被拒'):o.settlement==='NOT_STARTED'?tr('Awaiting start','待启动'):tr('Awaiting final bill','待结算'))+(o.funding==='card' && o.settlement==='SETTLED'?' · '+tr('Paid','已扣款'):o.settlement==='PAYMENT_REQUIRED'?' · '+tr('Payment due','待支付'):o.settlement==='PAYMENT_PENDING'?' · '+tr('Payment pending','扣款待确认'):'')+(o.lowBalanceStop?' · '+tr('Low-balance stop requested','已请求低余额停充'):'')+(o.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(o.shortfallCents):''):'ZAR '+esc(o.amount))+'</p>'+action('order',tr('View order','查看订单'),o.id)+'</article>').join(''):
       '<p>'+tr('Your charging orders will appear here.','你的充电订单会显示在这里。')+'</p>')+feedback());
     return '';
   }
@@ -277,7 +324,12 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       '确定永久删除账户、车辆和已保存的支付方式吗？此操作无法撤销。')))return true;
     working=true;btn.disabled=true;
     try {
-      if(op==='topup'){
+      if(op==='bind-card'){
+        if(!v.consent)return true;
+        const result=await api('/me/cards/bind','POST',{consent:'afe-variable-charge-v1'}),url=new URL(result.url);
+        if(url.origin!==new URL(AFE_BASE_URL).origin || url.pathname!=='/api/cards/bind/page' || !/^[\w-]{43}$/.test(url.searchParams.get('state') || ''))throw new Error('Invalid card binding address');
+        location.assign(url.href);
+      }else if(op==='topup'){
         const choice=Number(v.amount).toFixed(2),key=topupKey();
         let saved;try{saved=JSON.parse(sessionStorage.getItem(key));}catch{}
         if(saved?.amount!==choice){saved={amount:choice,requestId:crypto.randomUUID()};sessionStorage.setItem(key,JSON.stringify(saved));}
@@ -330,6 +382,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
   async function act(op,id){
     if(working)return;working=true;
     try{
+      if(op==='reload-notifications'){await loadNotifications();return;}
       if(op==='reload-wallet'){await loadWallet();return;}
       if(op==='continue-topup'){if(wallet?.pendingTopup?.redirect_url)openTopup(wallet.pendingTopup.redirect_url);return;}
       if(op==='check-topup'){
@@ -368,6 +421,6 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
     if(next==='login' && profile)next='profile';
     return target(next);
   }
-  return {screen,target,enter,start,submit,act,chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
+  return {screen,target,enter,start,submit,act,directCards:()=>(profile?.cards || []).filter(c=>c.direct),chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
     handles:page=>page==='account-loading'||protectedPages.has(page)||publicPages.has(page)};
 }

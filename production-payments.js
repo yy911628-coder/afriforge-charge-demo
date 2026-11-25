@@ -9,6 +9,7 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
   const targetValid = t => targetFields.every(k => typeof t?.[k] === 'string' && t[k].trim() && t[k].length <= 36);
   const validAmount = n => typeof n === 'string' && moneyFormat.test(n) && Number(n) > 0;
   const key = 'afe.production.payment.v2.' + AFE_BASE_URL;
+  let fundingChoice='card';
   let current = null, capability = null, receipt = null, busy = false, error = '', checkingAccess = false;
   let capabilityError = '', signedReturnIntent = null, returnEvidence = null;
   const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid});
@@ -87,7 +88,7 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
   }
   async function checkStatus() {
     if (!AFE_BASE_URL || !AFEAuth.token() || !current || busy) return;
-    if(current.funding==='wallet'){await commands.query();return;}
+    if(['wallet','card'].includes(current.funding)){await commands.query();return;}
     busy = true; error = ''; receipt = null; render();
     try {
       const result = await AFEApi.paymentStatus(current.pass);
@@ -157,19 +158,19 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
       error = errorCode(err);
     } finally { busy = false; render(); }
   }
-  async function startWallet(gun,vehicleId){
+  async function startFunded(gun,vehicleId,funding,cardId=null){
     const account=getAccount();
-    if(busy || current || !vehicleId || !account.wallet()?.canFundCharge || !commands.permitsCheckout(gun) || gun?.status!=='AVAILABLE' || gun.tariff?.status!=='verified')return;
+    if(busy || current || !vehicleId || (funding==='wallet'?!account.wallet()?.canFundCharge:!account.wallet()?.cardDirectEnabled || !account.directCards().some(card=>card.id===cardId)) || !commands.permitsCheckout(gun) || gun?.status!=='AVAILABLE' || gun.tariff?.status!=='verified')return;
     const target=Object.fromEntries(targetFields.map(k=>[k,gun[k]])),key='afe.intent.'+AFE_BASE_URL;
-    const choice=JSON.stringify(['wallet',target,vehicleId]);
+    const choice=JSON.stringify([funding,target,vehicleId,cardId]);
     let intent;try{intent=JSON.parse(sessionStorage.getItem(key));}catch{}
     if(intent?.choice!==choice || !attemptFormat.test(intent.id)){intent={choice,id:crypto.randomUUID()};sessionStorage.setItem(key,JSON.stringify(intent));}
     busy=true;error='';render();
     try{
-      const grant=await AFEApi.account('/me/charge-intents','POST',{funding:'wallet',target,vehicleId,requestId:intent.id});
-      if(grant.funding!=='wallet' || !passFormat.test(grant.pass) || !attemptFormat.test(grant.attemptId) ||
+      const grant=await AFEApi.account('/me/charge-intents','POST',{funding,cardId,target,vehicleId,requestId:intent.id});
+      if(grant.funding!==funding || !passFormat.test(grant.pass) || !attemptFormat.test(grant.attemptId) ||
         !targetFields.every(k=>grant.target?.[k]===target[k]))throw new ChargeApiError(502,'WALLET_ORDER_MISMATCH');
-      current={pass:grant.pass,id:grant.attemptId,target,funding:'wallet'};
+      current={pass:grant.pass,id:grant.attemptId,target,funding};
       if(!save()){current=null;throw new ChargeApiError(0,'PAYMENT_SESSION_STORAGE_UNAVAILABLE');}
       sessionStorage.removeItem(key);
       const checked=await commands.query();
@@ -180,7 +181,7 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
   function walletChoice(gun){
     const account=getAccount(),info=account.wallet();
     if(!gun)return '';
-    let body='<h3>'+tr('Pay from wallet','使用钱包余额')+'</h3>';
+    let body='<p>'+tr('Top up if your balance is too low.','余额不足请充值。')+'</p>';
     if(!account.active())return body+'<button class="rec-refresh" data-page="wallet">'+tr('Sign in to view wallet','登录查看钱包')+'</button>';
     if(info)body+='<p>'+tr('Available','可用余额')+' R'+(info.balanceCents/100).toFixed(2)+' · '+tr('Start above','启动须大于')+' R'+(info.minimumCents/100).toFixed(2)+'</p>';
     if(info?.canFundCharge && commands.permitsCheckout(gun) && gun.standard==='IEC_62196_T2_COMBO' && gun.status==='AVAILABLE' && gun.tariff?.status==='verified'){
@@ -188,6 +189,24 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
         account.chargeControls(true)+(account.hasVehicles()?submit(tr('Start with wallet','用钱包启动充电')):'')+'</form>';
     }
     return body+'<button class="rec-refresh" type="button" data-page="wallet">'+tr('Open wallet','查看钱包')+'</button>';
+  }
+  function directChoice(gun){
+    const account=getAccount(),list=account.directCards();
+    let body='<p>'+tr('Your linked card is charged automatically after charging.','充电结束后自动扣款。')+'</p>';
+    if(!account.active())return body+'<button class="rec-refresh" data-page="wallet">'+tr('Sign in to link a card','登录后绑定银行卡')+'</button>';
+    if(account.wallet()?.cardDirectEnabled===false)return body+'<p>'+tr('Peach card payments are awaiting activation.','Peach 正式绑卡扣款待开通。')+'</p>';
+    if(!list.length)return body+'<button class="rec-refresh" data-page="wallet">'+tr('Link a bank card','绑定银行卡')+'</button>';
+    if(!commands.permitsCheckout(gun) || gun?.status!=='AVAILABLE' || gun?.standard!=='IEC_62196_T2_COMBO' || gun?.tariff?.status!=='verified')return body+'<p>'+tr('Select an available CCS2 connector with a verified tariff.','请选择费率已确认且当前可用的 CCS2 枪口。')+'</p>';
+    return body+'<form class="rec-picker" data-form="card-start">'+account.chargeControls(true)+'<label>'+tr('Bank card','银行卡')+
+      '<select class="app-select" name="cardId">'+list.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.brand)+' ···· '+esc(c.last4)+'</option>').join('')+'</select></label>'+
+      (account.hasVehicles()?submit(tr('Start charging','启动充电')):'')+'</form>';
+  }
+  function fundingPicker(gun){
+    if(!gun)return '';
+    return '<div class="funding-options" role="group" aria-label="'+tr('Payment method','支付方式')+'">'+
+      [['card',tr('Bank card','银行卡')],['wallet',tr('Wallet','钱包')]].map(([id,label])=>
+        '<button type="button" class="rec-refresh" data-act="fund-'+id+'" aria-pressed="'+(id===fundingChoice)+'">'+label+'</button>').join('')+'</div>'+
+      (fundingChoice==='wallet'?walletChoice(gun):directChoice(gun));
   }
   function password(id) {
     return '<label for="'+id+'">'+tr('Operator pass','操作通行证')+'</label>'+
@@ -207,8 +226,8 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
   }
   function card(gun) {
     let content = '';
-    if(current?.funding==='wallet'){
-      content='<p>'+tr('This session uses your AFE wallet. The final bill and any outstanding amount appear in Orders and Wallet.','本次使用 AFE 钱包。最终账单及待补金额可在订单和钱包中查看。')+'</p>'+
+    if(['wallet','card'].includes(current?.funding)){
+      content='<p>'+(current.funding==='card'?tr('Your card will be charged for the final bill.','充电结束后按最终账单自动扣款。'):tr('This session uses your AFE wallet. The final bill and any outstanding amount appear in Orders and Wallet.','本次使用 AFE 钱包。最终账单及待补金额可在订单和钱包中查看。'))+'</p>'+
         '<button class="rec-refresh" type="button" data-act="close-payment"'+(busy||commands.isBusy()?' disabled':'')+'>'+tr('Close order view','关闭订单视图')+'</button>';
     }else if (current) {
       content = '<p role="status">'+(busy ? tr('Checking with Peach…','正在联系 Peach…') : receipt ? statusText(receipt.status) :
@@ -221,25 +240,18 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
         tr('Check payment status','查询预授权结果')+'</button>'+
         '<button class="rec-refresh" type="button" data-act="close-payment"'+(busy||commands.isBusy()?' disabled':'')+'>'+
         tr('Close payment view','关闭本次支付视图')+'</button>';
-    } else if (capability && commands.permitsCheckout(gun) && gun?.standard === 'IEC_62196_T2_COMBO' && gun.status === 'AVAILABLE') {
-      content='<p>'+tr('Peach will request a card hold. When the hold is confirmed, AFE will start the selected connector.','Peach 将申请银行卡预授权。预授权确认后，AFE 将启动所选枪口。')+'</p>'+
-        '<form class="rec-picker" data-form="checkout" data-amount="'+esc(capability.amount)+'">'+getAccount().chargeControls()+
-        (getAccount().hasVehicles()?submit(tr('Preauthorise ZAR ','预授权 ZAR ')+esc(capability.amount)+tr(' and start charging',' 并启动充电')):'')+'</form>';
-    } else {
-      content='<p>'+(!AFE_BASE_URL || (!capability && !capabilityError) ?
-        tr('Production card payments are not enabled.','正式银行卡支付尚未开通。') :
-        capabilityError ? tr('Payment service unavailable','暂时无法读取支付配置')+' · '+esc(capabilityError) :
-        tr('Preauthorisation requires an available CCS2 connector enabled for remote start.','请选择已开通远程启动且当前可用的 CCS2 枪口进行预授权。'))+'</p>';
-    }
+    } else {content=fundingPicker(gun);}
     if (error) content += '<p role="alert" class="rec-alert">'+tr('Check the payment or charging status','请核对付款或充电状态')+' · '+esc(error)+'</p>';
     if (!current && getAccount().active()) content+='<button class="rec-refresh" type="button" data-page="orders">'+tr('My orders','我的订单')+'</button>';
-    return '<section class="app-card rec-card"><h2>'+(current?.funding==='wallet'?tr('Wallet charging','钱包充电'):tr('Pay for charging','充电支付'))+'</h2>'+(!current?walletChoice(gun)+'<h3>'+tr('Bank card via Peach','Peach 银行卡')+'</h3>':'')+content+commands.card(gun)+'</section>';
+    return '<section class="app-card rec-card"><h2>'+(current?.funding==='wallet'?tr('Wallet charging','钱包充电'):tr('Pay for charging','充电支付'))+'</h2>'+content+commands.card(gun)+'</section>';
   }
   function submitForm(event, gun) {
     const form = event.target;
     if (!form.matches('form[data-form]')) return;
     event.preventDefault();
-    if(form.dataset.form==='wallet-start'){void startWallet(gun,new FormData(form).get('vehicleId'));return;}
+    if(['wallet-start','card-start'].includes(form.dataset.form)){
+      const values=new FormData(form);void startFunded(gun,values.get('vehicleId'),form.dataset.form==='card-start'?'card':'wallet',values.get('cardId'));return;
+    }
     if(form.dataset.form==='checkout'){
       if(!busy && getAccount().hasVehicles()){
         const v=new FormData(form);void checkout(gun,v.get('vehicleId'),form.dataset.amount,!!v.get('saveCard') && !v.get('cardId'),v.get('cardId') || null);
@@ -259,6 +271,7 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
     if (form.dataset.form === 'lookup') { current = {pass}; save(); void checkStatus(); }
   }
   function action(name,gun) {
+    if(name==='fund-card' || name==='fund-wallet'){fundingChoice=name.slice(5);render();return;}
     if (name === 'payment-status') void checkStatus();
     if (name === 'session-status') void commands.query();
     if (name === 'start-charge' || name === 'stop-charge') void commands.send(name,gun);
@@ -268,7 +281,7 @@ function productionPayments({tr, esc, pair, render, getAccount}) {
   async function resume(grant){
     if(busy || commands.isBusy())return;
     if(!passFormat.test(grant.pass) || !attemptFormat.test(grant.attemptId) || !targetValid(grant.target))throw new ChargeApiError(502,'PAYMENT_ORDER_MISMATCH');
-    commands.clear();receipt=null;current={pass:grant.pass,id:grant.attemptId,target:grant.target,amount:grant.amount,...(grant.funding==='wallet' && {funding:'wallet'})};
+    commands.clear();receipt=null;current={pass:grant.pass,id:grant.attemptId,target:grant.target,amount:grant.amount,...(['card','wallet'].includes(grant.funding) && {funding:grant.funding})};
     save();await checkStatus();
   }
   return {card,resume,submitForm,action,loadCapability,loadCommands:commands.load,checkStatus,finishReturn,
