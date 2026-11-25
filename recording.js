@@ -50,7 +50,7 @@
     if (!site) return [];
     return site.evses.flatMap(e => e.connectors.map(c => ({
       country_code:site.country_code, party_id:site.party_id, location_id:site.id, evse_uid:e.uid,
-      connector_id:c.id, standard:c.standard, status:e.status, last_updated:e.last_updated
+      connector_id:c.id, standard:c.standard, status:e.status, last_updated:e.last_updated, tariff:c.tariff
     })));
   }
   const keyForGun = (gun) => JSON.stringify(idFields.map(k=>gun[k]));
@@ -125,6 +125,19 @@
       pair(tr('Local connector 0','本地枪号 0'),'#01-1') + pair(tr('Local connector 1','本地枪号 1'),'#01-2') +
       '</dl></section>';
   }
+  function tariffDetails(rate) {
+    if (!rate) return '';
+    if (rate.status !== 'verified') {
+      return '<p class="rec-time">'+tr('The current charging rate is unavailable.','当前费率暂无法核实。')+'</p>';
+    }
+    const unit = esc(rate.currency) + '/kWh';
+    return '<section class="rec-tariff"><div class="rec-tariff-heading"><h3>'+tr('Charging rate','充电费率')+'</h3>'+
+      '<span>'+tr('All day','全天')+' · 00:00–24:00</span></div>'+
+      '<p class="rec-tariff-total"><strong>'+esc(rate.total_per_kwh)+'</strong> '+unit+'</p>'+
+      '<dl class="rec-details">'+pair(tr('Electricity','电费'),rate.electricity_per_kwh+' '+rate.currency+'/kWh')+
+      pair(tr('Service fee','服务费'),rate.service_per_kwh+' '+rate.currency+'/kWh')+
+      pair(tr('Tariff ID','费率编号'),rate.id)+'</dl></section>';
+  }
   function stationDetail() {
     const site = selectedSite();
     if (!site) return backButton() + '<p class="app-card" role="status">' +
@@ -151,7 +164,7 @@
       (guns.length ? '<div class="rec-picker"><label for="connector">' + tr('Select connector','选择枪口') +
         '</label><select id="connector" class="app-select">' + options + '</select></div>' :
         '<p>' + tr('No connectors published for this station.','该场站尚未发布枪口。') + '</p>') +
-      '<dl class="rec-details">' + pair('Location ID',site.id) + pair('EVSE UID',gun?.evse_uid) +
+      tariffDetails(gun?.tariff) + '<dl class="rec-details">' + pair('Location ID',site.id) + pair('EVSE UID',gun?.evse_uid) +
       pair('Connector ID',gun?.connector_id) + pair(tr('CPO status','平台状态'),gun && statusLabel(gun.status)) +
       (gun ? pair(tr('Status updated by CPO','平台状态更新时间'),gun.last_updated || tr('Not reported','未上报')) : '') +
       '</dl><p class="rec-time">' + tr('Catalog checked by AFE · UTC ','AFE 读取目录时间 · UTC ') + esc(sourceTime) + '</p></section>' + payments.card(gun);

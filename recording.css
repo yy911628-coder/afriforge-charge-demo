@@ -54,6 +54,13 @@
 }
 .afe-recording .rec-pair dt { color: var(--muted); flex: 0 0 32%; }
 .afe-recording .rec-pair dd { text-align: end; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.rec-tariff { display: grid; gap: 7px; padding: 12px 14px; border-radius: 13px; background: var(--surface-2); }
+.rec-tariff-heading { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.rec-tariff-heading h3 { margin: 0; font-size: .92rem; }
+.rec-tariff-heading span { color: var(--muted); font-size: .77rem; }
+.rec-tariff-total { color: var(--green-deep); font-variant-numeric: tabular-nums; }
+.rec-tariff-total strong { font-size: 1.55rem; }
+.rec-tariff .rec-pair:last-child { border-bottom: 0; }
 .afe-recording .rec-refresh { color: var(--green-deep); background: var(--surface); border: 1px solid var(--line); padding: 8px 13px; border-radius: 14px; }
 .afe-recording button:disabled { opacity: .5; }
 .afe-recording .rec-hero { margin: 0; color:#fff; }
@@ -150,6 +157,7 @@
 .driver-site .recommended-copy { gap: 3px; }
 .driver-site .recommended-copy small, .driver-site .recommended-copy span { font-size: .76rem; line-height: 1.35; }
 .driver-site .recommended-copy b { font-size: 1.04rem; }
+.driver-site .recommended-copy .driver-site-rate { color: var(--green-deep); font-weight: 700; }
 .driver-directory .driver-live-note, .driver-directory-empty {
   margin: 9px 2px 0; font-size: .78rem; color: var(--muted); line-height: 1.45;
 }

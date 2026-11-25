@@ -85,10 +85,15 @@ function driverHome({tr, esc, locations, site, loading, catalogError, configured
     const address = isReport ? 'Edenburg, Sandton' : [item.address,item.city].filter(Boolean).join(', ');
     const label = isReport ? tr('From the charging order report','充电订单报表')
       : tr('View connectors','查看枪口');
+    const guns = item?.evses?.flatMap(evse => evse.connectors) || [];
+    const rate = guns[0]?.tariff;
+    const commonRate = rate?.status === 'verified' && guns.every(gun => gun.tariff?.status === 'verified' &&
+      gun.tariff.id === rate.id && gun.tariff.currency === rate.currency && gun.tariff.total_per_kwh === rate.total_per_kwh);
     return '<button type="button" class="recommended-card driver-site" ' +
       (isReport ? 'data-act="report-site"' : 'data-site="' + index + '"') + '>' +
       '<span class="recommended-avatar" aria-hidden="true">ϟ</span><span class="recommended-copy"><small>' +
       label + '</small><b>' + esc(isReport ? '382 Rivonia' : item.name || item.id) + '</b>' +
+      (commonRate ? '<span class="driver-site-rate">'+esc(rate.total_per_kwh+' '+rate.currency+'/kWh')+'</span>' : '') +
       (address ? '<span>' + esc(address) + '</span>' : '') +
       '</span><span class="recommended-arrow" aria-hidden="true">›</span></button>';
   }
