@@ -3,10 +3,11 @@ const AFE_API_MOCK_MODE = false;
 const AFE_BASE_URL = window.AFE_CONFIG?.AFE_PRODUCTION_BASE_URL;
 
 class ChargeApiError extends Error {
-  constructor(status, code) {
+  constructor(status, code, retryAfter) {
     super(code);
     this.status = status;
     this.code = code;
+    if (Number.isSafeInteger(retryAfter) && retryAfter > 0) this.retryAfter = retryAfter;
   }
 }
 
@@ -49,7 +50,7 @@ const AFEApi = (() => {
       if (!response.ok) {
         if (response.status===401 && token && AFEAuth.token()===token && ['SESSION_EXPIRED','LOGIN_REQUIRED'].includes(data.error)) AFEAuth.end();
         throw new ChargeApiError(response.status, typeof data.error === 'string' && /^[A-Z0-9_]{1,90}$/.test(data.error)
-          ? data.error : 'BACKEND_ERROR');
+          ? data.error : 'BACKEND_ERROR', data.retryAfter);
       }
       return data;
     } finally { clearTimeout(deadline); }

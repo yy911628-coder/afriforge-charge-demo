@@ -26,7 +26,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
     resetCode=code;url.hash='';history.replaceState(null,'',url.pathname+url.search);navigate('reset',false);
   });
   const requested=entry.searchParams.get('account');
-  let initial=resetCode?'reset':requested==='delete'?'delete':requested==='login'?'login':requested==='wallet'?'wallet':null;
+  let initial=resetCode?'reset':['delete','login','wallet','register','forgot'].includes(requested)?requested:null;
   if(requested==='wallet' && entry.searchParams.has('card_link')){
     notice=entry.searchParams.get('card_link')==='verified'?tr('Card linked.','银行卡已绑定。'):tr('Card verification was not completed. You can try again.','银行卡验证未完成，可以重新绑定。');
     entry.searchParams.delete('card_link');
@@ -43,7 +43,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
   const title=label=>'<h1>'+label+'</h1>';
   const card=html=>'<section class="app-card rec-card">'+html+'</section>';
   const pwHint=()=>tr('Use at least 8 characters, including a letter and a number.','至少 8 位，包含字母和数字。');
-  const email=()=>field('email',tr('Email','邮箱'),'email','autocomplete="email" autocapitalize="none" maxlength="254" required',emailHint);
+  const email=()=>field('email',tr('Email address','邮箱地址'),'email','autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" placeholder="name@example.com" required',emailHint);
   const pw=(name,label,fresh)=>field(name,label,'password','autocomplete="'+(fresh?'new-password':'current-password')+'" '+(fresh?'minlength="8" ':'')+'maxlength="256" required');
   const newPw=()=>pw('password',tr('New password','新密码'),true)+'<small>'+pwHint()+'</small>'+pw('confirm',tr('Confirm password','确认密码'),true);
   const legal=(section,en,zh)=>'<a href="./legal.html?lang='+(tr('en','zh'))+'#'+section+'" data-legal="true">'+tr(en,zh)+'</a>';
@@ -72,7 +72,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       CONSENT_REQUIRED:['Read and accept both policies to register.','注册前请阅读并同意两份协议。'],
       REGISTRATION_EMAIL_NOT_CONFIGURED:['Email verification is not available yet.','邮箱验证服务尚未开通。'],
       EMAIL_CODE_REQUIRED:['Enter the six-digit code sent to your email.','请输入邮件中的六位验证码。'],
-      INVALID_EMAIL_CODE:['The code is incorrect, expired, or has no attempts left. Check your latest email or request a new code.','验证码有误、已过期或尝试次数已用完。请查看最新邮件或重新获取。'],
+      INVALID_EMAIL_CODE:['Check the six digits in your latest email. If the code has expired, request another.','请核对最新邮件里的六位数字。验证码过期后可重新获取。'],
       VERIFICATION_COOLDOWN:['Wait one minute before requesting another code.','请等一分钟再重新获取验证码。'],
       EMAIL_CODE_LOCKED:['Three incorrect codes. Try again in 10 minutes.','连续三次验证码错误，请在 10 分钟后重试。'],
       INVALID_REGISTER_TOKEN:['Email verification has expired. Request a new code.','本次邮箱验证已过期，请重新获取验证码。'],
@@ -83,7 +83,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       INVALID_VIN:['A VIN has 17 letters and numbers and excludes I, O and Q.','VIN 为 17 位，不含 I、O、Q。'],
       INVALID_RESET:['The reset link has expired or was used. Request another email.','链接已过期或已使用，请重新申请。'],
       RESET_EMAIL_NOT_CONFIGURED:['Password recovery email is not available yet.','密码重置邮件服务尚未开通。'],
-      EMAIL_DELIVERY_UNAVAILABLE:['The email service could not accept the message. Try again later.','邮件服务暂时无法接收请求，请稍后重试。'],
+      EMAIL_DELIVERY_UNAVAILABLE:['We could not confirm that your email was sent. Please try again shortly.','暂时无法确认邮件已发出，请稍后再试。'],
       END_CHARGE_BEFORE_DELETION:['Finish your charging session and refresh its status before deleting the account.','请先结束充电并刷新订单状态，再注销账户。'],
       TRY_LATER:['Too many attempts. Please try again later.','操作次数过多，请稍后再试。'],
       ACCOUNT_DATABASE_NOT_FOUND:['The account database is being set up. Please try again later.','账户数据库正在配置，请稍后重试。'],
@@ -183,6 +183,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
   }
   function enter(page){
     notice='';
+    clearTimeout(resendTimer);
     if(['wallet','station'].includes(page) && profile)void loadWallet();
     if(page==='notifications' && profile)void loadNotifications();
     if(page==='orders' && profile)void loadOrders();
@@ -192,37 +193,96 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
     return getPage()==='email-verify'?'existing':getPage()==='forgot'?'reset':'register';
   }
   async function sendCode(address,purpose){
+    const page=getPage();
     const path={existing:'/me/email/code',register:'/auth/send-code',reset:'/auth/forgot-password'}[purpose];
     const data=await api(path,'POST',purpose==='existing'?{}:{email:address});
+    if(page!==getPage())return;
+    emailHint=address.trim().toLowerCase();
     sessionStorage.setItem(codeKey,JSON.stringify({email:address.trim().toLowerCase(),purpose,
       owner:purpose==='existing'?profile.user.uid:null,expiresAt:Date.now()+data.expiresIn*1000,resendAt:Date.now()+data.retryAfter*1000}));
-    notice='';render();
+    notice='';render();root.querySelector('input[autocomplete="one-time-code"]')?.focus();
   }
+  function mailProgress(labels,step){
+    return '<ol class="mail-progress" aria-label="'+tr('Verification steps','邮箱验证步骤')+'">'+labels.map((label,i)=>
+      '<li'+(i===step?' aria-current="step"':'')+' class="'+(i<=step?'reached':'')+'">'+label+'</li>').join('')+'</ol>';
+  }
+  function updateMailTimer(purpose,pending){
+    clearTimeout(resendTimer);
+    const panel=root.querySelector('[data-mail-stage]');
+    if(!panel || panel.dataset.mailStage!==purpose)return;
+    const now=Date.now();
+    if(now>=pending.expiresAt){
+      emailHint=pending.email;notice=tr('Your verification expired. Request a new code.','本次验证已过期，请重新获取验证码。');render();return;
+    }
+    const lock=Math.max(0,Math.ceil(((pending.lockedUntil || 0)-now)/1000));
+    const remaining=Math.max(lock,0,Math.ceil((pending.resendAt-now)/1000));
+    const resend=panel.querySelector('[data-account="resend-code"]');
+    if(resend){
+      resend.disabled=remaining>0;
+      resend.textContent=remaining?tr('Resend in '+remaining+'s',remaining+' 秒后可重发'):tr('Resend code','重新发送验证码');
+      if(!working)panel.querySelector('button[type="submit"]').disabled=lock>0;
+    }
+    resendTimer=setTimeout(()=>updateMailTimer(purpose,pending),remaining?1000:Math.max(1,pending.expiresAt-now));
+  }
+  function mailError(error,purpose){
+    const pending=pendingCode(purpose);
+    const wait=error.retryAfter;
+    if(!wait || !['EMAIL_CODE_LOCKED','VERIFICATION_COOLDOWN'].includes(error.code))return describe(error);
+    if(pending){
+      pending.resendAt=Date.now()+wait*1000;
+      if(error.code==='EMAIL_CODE_LOCKED')pending.lockedUntil=pending.resendAt;
+      sessionStorage.setItem(codeKey,JSON.stringify(pending));
+      updateMailTimer(purpose,pending);
+    }
+    return error.code==='EMAIL_CODE_LOCKED'
+      ?tr('Too many incorrect codes. Try again in '+Math.ceil(wait/60)+' min.','连续输错验证码，请在 '+Math.ceil(wait/60)+' 分钟后再试。')
+      :tr('Please wait '+wait+'s before requesting another code.','请在 '+wait+' 秒后重新获取验证码。');
+  }
+  root.addEventListener('paste',event=>{
+    const input=event.target;
+    if(!input.matches('input[autocomplete="one-time-code"]'))return;
+    const pasted=event.clipboardData?.getData('text') || '';
+    const digits=pasted.replace(/[\s-]/g,'');
+    if(/^\d{6}$/.test(digits)){event.preventDefault();input.value=digits;input.dispatchEvent(new Event('input',{bubbles:true}));}
+  });
   function verificationScreen(purpose){
+    clearTimeout(resendTimer);
     const existing=purpose==='existing',reset=purpose==='reset';
     const heading=existing?tr('Verify email','验证邮箱'):reset?tr('Forgot password','忘记密码'):tr('Create an account','注册账户');
     const head=back(existing?'security':'login',existing?tr('Account security','账户安全'):tr('Sign in','登录'))+title(heading);
-    if(mailStatus==='loading')return head+card('<p role="status">'+tr('Checking email service…','正在检查邮箱验证服务…')+'</p>');
-    if(mailStatus==='error')return head+card('<p>'+tr('Could not reach the account service.','暂时无法连接账户服务。')+'</p>'+action('retry-mail',tr('Try again','重试')));
-    if(mailStatus==='off')return head+card('<p role="status">'+tr('Verification email is awaiting activation. Existing drivers can sign in with their password.','验证码邮件服务尚未开通，已有账户可用密码登录。')+'</p>'+action('retry-mail',tr('Refresh','刷新')));
     const pending=pendingCode(purpose);
-    if(!pending)return head+card(form('send-code',existing?'<p>'+esc(profile.user.email)+'</p>':email(),reset?tr('Send reset code','发送重置验证码'):tr('Send verification code','发送邮箱验证码'))+feedback());
-    const address='<strong>'+esc(pending.email)+'</strong>';
+    const steps=[tr('Email','邮箱'),reset?tr('New password','重置密码'):tr('Code','验证码')];
+    if(!existing && !reset)steps.push(tr('Password','设置密码'));
+    const shell=(content,step=0)=>head+'<section class="app-card rec-card mail-panel" data-mail-stage="'+purpose+'">'+
+      mailProgress(steps,step)+content+'</section>';
+    if(!pending && mailStatus!=='ready'){
+      if(mailStatus==='loading')return shell('<p role="status">'+tr('Checking email service…','正在连接邮箱验证服务…')+'</p>');
+      const reason=mailStatus==='error'?tr('Could not reach the account service. Check your connection and try again.','暂时无法连接账户服务，请检查网络后重试。'):
+        tr('Verification emails are awaiting activation. Existing drivers can still sign in with their password.','验证码邮件服务待开通，已有账户可继续使用密码登录。');
+      return shell('<p role="status">'+reason+'</p>'+action('retry-mail',tr('Check again','重新检查')));
+    }
+    if(!pending){
+      const instruction=reset?tr('Enter the email used for your AFE Charge account.','请输入注册 AFE Charge 时使用的邮箱。'):
+        tr('We’ll send a six-digit code to this address.','我们会向这个邮箱发送六位验证码。');
+      return shell('<h2>'+tr('Your email address','你的邮箱')+'</h2><p>'+instruction+'</p>'+
+        form('send-code',existing?'<p class="mail-address">'+esc(profile.user.email)+'</p>':email(),reset?tr('Send reset code','发送重置验证码'):tr('Send verification code','发送验证码'))+feedback());
+    }
+    resendTimer=setTimeout(()=>updateMailTimer(purpose,pending),0);
+    const address='<strong class="mail-address">'+esc(pending.email)+'</strong>';
     if(pending.registerToken){
       const consent='<label class="acct-check"><input type="checkbox" name="consent" required><span>'+tr('I agree to the ','我已阅读并同意')+
         legal('privacy','Privacy Policy','《隐私政策》')+tr(' and ','和')+legal('terms','Terms of Service','《服务条款》')+'</span></label>';
-      return head+card('<p>'+address+' · '+tr('Email verified','邮箱已验证')+'</p>'+form('register',newPw()+consent,tr('Create account','创建账户'))+feedback());
+      return shell('<h2>'+tr('Set your password','设置登录密码')+'</h2><p class="mail-verified">'+tr('Verified email','已验证邮箱')+'<br>'+address+'</p>'+
+        form('register',newPw()+consent,tr('Create account','创建账户'))+feedback(),2);
     }
-    const code=field('code',tr('Six-digit email code','六位邮箱验证码'),'text','inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required');
-    const instruction=reset?tr('If the account exists, a reset code was sent to','如果该邮箱已注册，重置验证码将发送至'):
-      tr('Check this inbox for your verification code','请在以下邮箱中查收验证码');
-    const cooldown=Math.max(0,pending.resendAt-Date.now());
-    clearTimeout(resendTimer);
-    if(cooldown)resendTimer=setTimeout(()=>{const b=root.querySelector('[data-account="resend-code"]');if(b)b.disabled=false;},cooldown+20);
-    const resend='<button type="button" class="rec-refresh" data-account="resend-code"'+(cooldown?' disabled':'')+'>'+tr('Resend code','重新发送验证码')+'</button>';
-    const content=reset?form('reset',code+newPw(),tr('Reset password','重置密码')):form(existing?'verify-email':'verify-code',code,tr('Verify code','验证验证码'));
-    return head+card('<p>'+instruction+'<br>'+address+'</p><p>'+tr('Valid for 15 minutes.','验证码 15 分钟内有效。')+'</p>'+
-      content+feedback()+resend+(existing?'':action('change-email',tr('Use another email','使用其他邮箱'))));
+    const code=field('code',tr('Six-digit code','六位验证码'),'text','inputmode="numeric" autocomplete="one-time-code" dir="ltr" spellcheck="false" aria-describedby="mail-code-hint" pattern="[0-9]{6}" maxlength="6" required');
+    const instruction=reset?tr('If an account exists, check this inbox for your reset code.','如果该邮箱已注册，请在收件箱查找重置验证码。'):
+      tr('Check this inbox for the latest code.','请在以下邮箱查收最新验证码。');
+    const content=reset?form('reset',code+newPw(),tr('Reset password','重置密码')):form(existing?'verify-email':'verify-code',code,tr('Verify email','验证邮箱'));
+    return shell('<h2>'+tr('Check your email','查收验证码')+'</h2><p>'+instruction+'<br>'+address+'</p><p id="mail-code-hint">'+
+      tr('Valid for 15 minutes. If needed, check your spam folder.','验证码 15 分钟内有效。找不到邮件时，可查看垃圾邮件。')+'</p>'+
+      content+feedback()+'<div class="mail-actions"><button data-account="resend-code" type="button" class="rec-refresh" disabled>'+tr('Resend code','重新发送验证码')+'</button>'+
+      (existing?'':action('change-email',tr('Change email','更换邮箱')))+'</div>',1);
   }
   function authScreen(page){
     if(page==='login')return title(tr('Sign in','登录'))+card(form('login',email()+pw('password',tr('Password','密码'),false)+
@@ -323,6 +383,8 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
     if(op==='delete' && !confirm(tr('Permanently delete this account, vehicles and saved payment methods? This cannot be undone.',
       '确定永久删除账户、车辆和已保存的支付方式吗？此操作无法撤销。')))return true;
     working=true;btn.disabled=true;
+    const label=btn.textContent;
+    if(op==='send-code')btn.textContent=tr('Sending…','正在发送…');
     try {
       if(op==='bind-card'){
         if(!v.consent)return true;
@@ -350,7 +412,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
         } else {
           const result=await api('/auth/verify-code','POST',{email:pending.email,code:v.code});
           sessionStorage.setItem(codeKey,JSON.stringify({...pending,registerToken:result.registerToken,expiresAt:Date.now()+result.expiresIn*1000}));
-          notice='';render();
+          notice='';render();root.querySelector('input[autocomplete="new-password"]')?.focus();
         }
       } else if(op==='register'){
         const pending=pendingCode('register');
@@ -376,7 +438,15 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       } else if(op==='profile'){profile=await api('/me','PUT',{name:v.name,phone:v.phone,accountType:v.accountType});navigate('profile');}
       else if(op==='vehicle'){profile=await api('/me/vehicles','POST',{...v,isDefault:!!v.isDefault || !profile.vehicles.length});navigate('vehicles');}
       else if(op==='delete'){await api('/me','DELETE',{password:v.password,confirm:true});AFEAuth.end();}
-    } catch(e){if(e.code==='INVALID_REGISTER_TOKEN'){sessionStorage.removeItem(codeKey);render();}announce(describe(e),true);} finally{working=false;btn.disabled=false;}
+    } catch(e){
+      if(e.code==='INVALID_REGISTER_TOKEN'){sessionStorage.removeItem(codeKey);render();}
+      announce(mailError(e,purposeForPage()),true);
+    } finally {
+      working=false;
+      if(btn.isConnected){btn.textContent=label;btn.disabled=false;}
+      const purpose=purposeForPage(),pending=pendingCode(purpose);
+      if(pending && root.querySelector('[data-mail-stage]'))updateMailTimer(purpose,pending);
+    }
     return true;
   }
   async function act(op,id){
@@ -403,7 +473,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments}) {
       if(op==='default')profile=await api('/me/vehicles/'+id,'PUT',{isDefault:true});
       if(op==='remove-vehicle' && confirm(tr('Remove this vehicle?','确定移除这辆车吗？')))profile=await api('/me/vehicles/'+id,'DELETE');
       render();
-    }catch(e){announce(describe(e),true);}finally{working=false;}
+    }catch(e){announce(mailError(e,purposeForPage()),true);}finally{working=false;}
   }
   async function start(){
     if(AFEAuth.token()){

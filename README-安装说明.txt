@@ -1,9 +1,12 @@
-AFE Charge · iPhone PWA · v42
+AFE Charge · iPhone PWA · v43
 
 在 iPhone 上使用
-1. 用 Safari 打开 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v42
+1. 用 Safari 打开 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v43
 2. 点“分享”→“添加到主屏幕”。首页可查看场站与枪口，“我的”“钱包”“订单”需要登录。
 3. 打开 382 Rivonia，在“选择枪口”中切换，查看枪口状态与充电费率。右上角可切换中英文。
+
+邮箱注册与找回密码
+在“我的”选择“注册新账户”。输入邮箱后，将最新邮件中的六位验证码填入 App，再设置密码并确认两份协议。验证码 15 分钟内有效，60 秒后可重新发送。登录页的“忘记密码”也使用邮箱验证码。
 
 382 Rivonia 充电费率
 00:00–24:00 总价为 3.0198 ZAR/kWh。每千瓦时包含电费 2.8005 ZAR 和服务费 0.2193 ZAR。费率编号为 ZA410200010004。

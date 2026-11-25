@@ -5,3 +5,16 @@
 .funding-options button{flex:1}
 .funding-options button[aria-pressed=true]{background:#235c41;color:white}
 .charge-toast{position:fixed;top:calc(env(safe-area-inset-top,0px) + .8rem);left:50%;transform:translateX(-50%);width:min(90%,28rem);padding:.85rem 1rem;background:#163e2c;color:#fff;border-radius:.85rem;box-shadow:0 4px 18px #17332238;z-index:9999;white-space:pre-line;pointer-events:none}
+.mail-panel {max-width:32rem;margin-inline:auto;overflow-wrap:anywhere}
+.afe-recording h1 + .mail-panel {margin-top:.8rem}
+.mail-progress {display:flex;gap:.6rem;list-style:none;margin:0 0 1.4rem;padding:0}
+.mail-progress li {flex:1;min-width:0;border-top:3px solid var(--line,#dce5de);padding-top:.35rem;color:var(--muted,#52665a);font-size:.8rem}
+.mail-progress .reached {border-color:var(--green,#30684e)}
+.mail-progress [aria-current=step] {color:var(--green-deep,#24583c);font-weight:700}
+.mail-panel .mail-address {display:inline-block;color:var(--text,#19382a);overflow-wrap:anywhere}
+.mail-panel .acct-form {margin-top:1.05rem}
+.mail-panel input[autocomplete=one-time-code] {font:600 1.45rem/1.25 ui-monospace,monospace;letter-spacing:.38em;min-height:52px}
+.mail-panel :is(button,input,a):focus-visible {outline:3px solid var(--green,#30684e);outline-offset:2px}
+.mail-actions {display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:.85rem}
+.mail-actions .rec-refresh {min-height:44px;margin:0;padding:.45rem .6rem;font-size:.9rem}
+.mail-actions .rec-refresh:disabled {color:var(--muted,#52665a);background:transparent;border-color:transparent;opacity:1;font-variant-numeric:tabular-nums}
