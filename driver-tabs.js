@@ -24,7 +24,7 @@ function driverNav(tr, page) {
   return `<nav class="app-nav" aria-label="${tr('Main navigation','主导航')}">${buttons}</nav>`;
 }
 
-function driverTab({page, tr, paymentCard = '', hasOrder = false}) {
+function driverTab({page, tr, paymentCard = '', hasOrder = false, scanFeedback = '', scanChoices = ''}) {
   function tabLink(to, label) {
     return `<button type="button" class="app-button secondary full" data-page="${to}">${label}</button>`;
   }
@@ -46,10 +46,11 @@ function driverTab({page, tr, paymentCard = '', hasOrder = false}) {
   }
   if (page === 'scan') {
     return `<h1>${tr('Scan a charger','扫码找桩')}</h1><section class="app-card rec-card">
-      <div class="scan-camera"><video data-scan-video playsinline muted hidden></video>
+      <div class="scan-camera${scanFeedback ? ' scan-received' : ''}"><video data-scan-video playsinline muted hidden></video>
         <i aria-hidden="true" class="scanner-corner tl"></i><i aria-hidden="true" class="scanner-corner tr"></i>
         <i aria-hidden="true" class="scanner-corner bl"></i><i aria-hidden="true" class="scanner-corner br"></i>
-        <span class="scan-camera-status" data-camera-status role="status">${tr('Scan the QR code on the charger','请扫描桩屏上的二维码')}</span></div>
+        <span class="scan-camera-status" data-camera-status role="status">${scanFeedback || tr('Scan the QR code on the charger','请扫描桩屏上的二维码')}</span></div>
+      ${scanChoices}
       <div class="scan-camera-actions"><button type="button" class="app-button" data-act="scan-camera">${tr('Open camera','打开相机')}</button>
         <button type="button" class="app-button secondary" data-act="stop-camera" hidden>${tr('Close camera','关闭相机')}</button></div>
       <form data-driver-code class="rec-picker"><label for="driver-code">${tr('Or enter the charger code','也可以输入充电桩编号')}</label>
@@ -64,8 +65,12 @@ function driverTab({page, tr, paymentCard = '', hasOrder = false}) {
 function driverResolveCode(raw, locations) {
   const code = typeof raw === 'string' ? raw.trim() : '';
   if (!code || code.length > 1024) return {kind:'unmatched'};
-  const matches = [];
+  const matches = [], stations = [];
   locations.forEach((site,siteIndex) => {
+    const rivoniaCabinet=site.id==='ZA41020001000001' &&
+      ((site.country_code==='ZA' && site.party_id==='AFE') || (site.country_code==='CN' && site.party_id==='HHD')) &&
+      code==='ZA410200010000010001';
+    if(code===site.id || rivoniaCabinet)stations.push({kind:'station',siteIndex});
     for (const evse of site.evses) {
       for (const connector of evse.connectors) {
         const identity = [site.country_code,site.party_id,site.id,evse.uid,connector.id];
@@ -76,8 +81,8 @@ function driverResolveCode(raw, locations) {
       }
     }
   });
-  if (matches.length > 1) return {kind:'ambiguous'};
-  return matches[0] || {kind:code === 'ZA41020001000001000100' ? 'report' : 'unmatched'};
+  if (matches.length+stations.length > 1) return {kind:'ambiguous'};
+  return matches[0] || stations[0] || {kind:code === 'ZA41020001000001000100' ? 'report' : 'unmatched'};
 }
 
 let driverCamera = null;

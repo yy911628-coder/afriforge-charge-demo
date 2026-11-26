@@ -228,9 +228,17 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     if(!fundingChoice)return picker;
     let body='';
     if(fundingChoice==='wallet'){
-      body='<p>'+tr('Top up if your balance is too low.','余额不足请充值。')+'</p>';
-      if(info)body+='<p>'+tr('Balance','可用余额')+' R'+(info.balanceCents/100).toFixed(2)+' · '+tr('Start above','启动须大于')+' R'+(info.minimumCents/100).toFixed(2)+'</p>';
       const credit=eligibleCredit(gun);
+      const onCredit=usingCredit(gun);
+      if(info){
+        const cents=onCredit?credit.remainingCents:info.balanceCents;
+        body='<p>'+tr(onCredit?'Available station test credit':'Wallet balance',onCredit?'本次可用试充额度':'钱包余额')+
+          ' R'+(cents/100).toFixed(2)+' · '+tr('Start above','启动须大于')+' R'+(info.minimumCents/100).toFixed(2)+'</p>';
+        if(!onCredit && cents<=info.minimumCents)body+='<p>'+(
+          credit?.canFundCharge ? tr('Select station credit below, or top up your wallet.','可勾选下方本站试充额度，或为钱包充值。') :
+          tr('Top up to start with your wallet.','钱包余额不足，请充值后启动。'))+'</p>';
+        if(onCredit && cents<=info.minimumCents)body+='<p>'+tr('Station credit is too low to start.','本站试充额度不足以启动。')+'</p>';
+      }
       if(credit)body+='<label class="acct-check"><input type="checkbox" data-station-credit'+(usingCredit(gun)?' checked':'')+'> '+
         tr('Internal test · use station credit','内部实车测试 · 使用本站试充额度')+' R'+(credit.remainingCents/100).toFixed(2)+'</label>';
       body+='<button type="button" class="text-action" '+(account.active()?'data-page="wallet"':'data-account="station-login"')+'>'+tr(account.active()?'Open wallet':'Sign in to use wallet',account.active()?'查看钱包':'登录使用钱包')+'</button>';
@@ -274,8 +282,11 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     if(preview.session()==='active')return '<span class="dock-hint" role="status">'+tr('Demo charging started','模拟充电已开始')+'</span><button type="button" class="station-primary" data-act="end-preview">'+tr('End demo','结束体验')+'</button>';
     let hint='';
     if(!gun)hint=tr('Select a connector','请选择充电枪');
+    else if(gun.status==='RESERVED')hint=tr('Start unavailable while the reservation is unverified','预约归属待确认，暂不能启动');
+    else if(gun.status==='CHARGING')hint=tr('This connector has a session in progress','此枪正在充电');
     else if(!preview.usable(gun))hint=tr('This connector is unavailable','此枪当前不可启动');
-    else if(!preview.connected(gun) && !recheck)hint=tr('Connect the cable to your vehicle','请先将充电枪插入车辆');
+    else if(!preview.connected(gun) && !recheck)hint=gun.vehicle_connection==='UNKNOWN' && !preview.preview() ?
+      tr('Awaiting plug confirmation from the station','等待桩端确认连接') : tr('Connect the cable to your vehicle','请先将充电枪插入车辆');
     else if(!current && !fundingChoice)hint=tr('Choose a payment method','请选择支付方式');
     else if(!current && !preview.preview() && fundingChoice==='wallet' && !walletReady(gun))hint=tr('Choose sufficient wallet funds','请选择足额的可用余额或试充额度');
     else if(!current && fundingChoice==='card' && !(preview.preview()?demoCard():realCard()))hint=tr('Link or choose a card','请绑定或选择银行卡');

@@ -10,6 +10,7 @@
   let locations = [], sourceTime = '', stationKey = '', connectorKey = '';
   let loading = false, catalogError = '', manuallySelected = false;
   let pendingScan = null;
+  let scanIssue = null, checkedGun = '';
   let scannedPlug = null, plugTimer, catalogRequest;
   const tr = (en, zh) => chinese ? zh : en;
 
@@ -186,6 +187,11 @@
       if (page === 'station' && !previous) navigate('home', false);
       chooseSite(previous || rivonia || locations[0]);
       if (!manuallySelected && payments.target()) resumeConnector(payments.target());
+      if (scannedPlug && page==='station') {
+        const gun=selectedGun();
+        if (!gun || keyForGun(gun)!==scannedPlug.key || !['AVAILABLE','PREPARING'].includes(gun.status) ||
+            (scannedPlug.pending && gun.vehicle_connection==='DISCONNECTED')) forgetScan();
+      }
     } catch (error) {
       sourceTime = '';
       catalogError = error instanceof ChargeApiError ? error.code : 'FEED_UNREACHABLE';
@@ -194,7 +200,9 @@
       render();
       const scan = pendingScan;
       pendingScan = null;
-      if (scan?.feedback.isConnected) showCode(scan.raw, scan.feedback, scan.fromCamera);
+      if (scan && page==='scan') {
+        showCode(scan.raw,root.querySelector(scan.fromCamera?'[data-camera-status]':'[data-scan-message]'),scan.fromCamera);
+      }
     }
   }
   function statusLabel(raw) {
@@ -205,7 +213,7 @@
       case 'CHARGING': return tr('Charging','充电中');
       case 'INOPERATIVE': return tr('Inoperative','不可用');
       case 'OUTOFORDER': return tr('Out of order','故障');
-      case 'RESERVED': return tr('Reserved','已预约');
+      case 'RESERVED': return tr('Reported reserved','平台报已预约');
       default: return raw || tr('Not reported','未上报');
     }
   }
@@ -222,8 +230,9 @@
     // Keep the physical left/right labels even if the CPO reorders or omits a connector.
     const knownSite = site.id === rivoniaSite.id && (keyFor(site) === keyFor(rivoniaSite) ||
       (site.country_code === 'CN' && site.party_id === 'HHD'));
-    const slots = knownSite ? rivoniaGuns.map(([letter, uid, id]) => ({
+    const slots = knownSite ? rivoniaGuns.map(([letter, uid, id],index) => ({
       label: tr('Connector ' + letter, letter + ' 枪'),
+      physicalLabel:'#01-'+(index+1),
       gun: guns.find(g => g.evse_uid === uid && g.connector_id === id)
     })) : [];
     for (const gun of guns) {
@@ -233,14 +242,14 @@
       }
     }
     if (!slots.length) return '<p>' + tr('No connectors published for this station.','该场站尚未发布枪口。') + '</p>';
-    const tiles = slots.map(({label,gun}) => {
+    const tiles = slots.map(({label,gun,physicalLabel}) => {
       const value = gun && keyForGun(gun);
       const attrs = gun ? ' value="' + esc(value) + '"' + (value === connectorKey ? ' checked' : '') + (payments.preview.session()?' disabled':'') : ' disabled';
       const standard = gun?.standard === 'IEC_62196_T2_COMBO' ? 'CCS2' : gun?.standard;
       const state = gun ? statusLabel(gun.status) : tr('Status unavailable','暂无状态');
       return '<label class="gun-option"><input type="radio" name="charge-connector"' + attrs + '>' +
         '<span class="gun-tile"><strong>' + label + '</strong><span class="gun-mark" aria-hidden="true"></span>' +
-        (standard ? '<span class="gun-type">' + esc(standard) + '</span>' : '') +
+        (standard ? '<span class="gun-type">' + esc([standard,physicalLabel].filter(Boolean).join(' · ')) + '</span>' : '') +
         '<span class="gun-status" data-status="' + esc(gun?.status || '') + '">' + esc(state) +
         (payments.preview.usable(gun) && payments.preview.connected(gun)?'<small>'+tr('Connected','已连接')+'</small>':'')+'</span></span></label>';
     }).join('');
@@ -270,7 +279,23 @@
     return backButton() + '<h1>' + esc(site.name || tr('Charging station','充电场站')) + '</h1><p class="app-muted">' +
       esc([site.address,site.city].filter(Boolean).join(', ')) + '</p>' + directions +
       '<section class="app-card rec-card station-connectors">' + gunPicker(site,guns) +
-      payments.preview.banner(gun)+recheckPanel(gun)+(gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
+      payments.preview.banner(gun,{loading,refreshed:!!gun && !catalogError && checkedGun===keyForGun(gun),recheck:!!canRecheck(gun)})+
+      recheckPanel(gun)+(gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
+  }
+  function scanRecovery() {
+    if(!scanIssue)return {};
+    const {kind,label}=scanIssue;
+    const choices=!catalogError && sourceTime ? locations.filter(site=>site.evses.some(e=>e.connectors.length)).map(site=>
+      '<button type="button" class="rec-refresh" data-scan-site="'+esc(keyFor(site))+'">'+
+      esc(tr('Choose connector at '+(site.name || site.id),'手选 '+(site.name || site.id)+' 的枪口'))+'</button>').join('') : '';
+    const message=catalogError || !sourceTime ?
+      tr('Code received. The station list is unavailable. Refresh to try again.','已读到编号，场站目录暂不可用。请刷新后重试。') :
+      !choices ? tr('The station list has no published connectors. Refresh to try again.','当前目录没有可选枪口，请刷新后重试。') :
+      kind==='ambiguous' ? tr('This code has multiple matches. Choose the connector shown on the charger.','此编号有多个匹配，请按充电桩上的枪号手选。') :
+      tr('Code read'+label+'. No matching connector. Choose your station and check the label on the charger.','已读到编号'+label+'，未匹配到枪口。请手选场站，再核对桩上的枪号。');
+    return {scanFeedback:esc(message),scanChoices:'<div class="scan-recovery">'+(choices ||
+      '<button type="button" class="rec-refresh" data-act="refresh-scan"'+(loading?' disabled':'')+'>'+
+      tr(loading?'Updating…':'Refresh station list',loading?'正在刷新…':'刷新场站目录')+'</button>')+'</div>'};
   }
   function browse() {
     if (page === 'home') return driverHome({tr,esc,locations,site:selectedSite(),loading,catalogError,configured:!!AFE_BASE_URL,sourceTime});
@@ -279,7 +304,7 @@
     if (account.handles(page)) return account.screen(page);
     const hasOrder = payments.hasOrder();
     const paymentCard = ['wallet','orders'].includes(page) ? payments.card(hasOrder ? selectedGun() : null) : '';
-    let screen = driverTab({page,tr,paymentCard,hasOrder});
+    let screen = driverTab({page,tr,paymentCard,hasOrder,...(page==='scan' && scanRecovery())});
     if (page === 'orders' && priorSession) screen += '<p class="app-notice" role="status">' +
       tr('For an earlier test payment or charging session, contact the test operator with the original reference.',
         '如需查询之前的测试支付或充电会话，请凭原订单号联系测试负责人。') + '</p>';
@@ -322,6 +347,8 @@
     next=account.target(next);
     if (next !== page && push) history.pushState({afeView:next,stationKey,connectorKey},'');
     const changed=page!==next;
+    if(changed && page==='scan'){scanIssue=null;pendingScan=null;}
+    if(changed)checkedGun='';
     if(changed && page==='station'){forgetScan();payments.resetCredit();payments.preview.leave();}
     page = next;
     if(changed) account.enter(next);
@@ -332,13 +359,14 @@
     if (!feedback) return;
     pendingScan = null;
     if (loading && !sourceTime) {
-      pendingScan = {raw, feedback, fromCamera};
+      pendingScan = {raw,fromCamera};
       feedback.textContent = tr('Code received. Looking up the connector…','已读到编号，正在查询枪口…');
       return;
     }
     const match = driverResolveCode(raw,locations);
-    if (match.kind === 'report') return navigate('report');
-    if (match.kind === 'connector') {
+    if (match.kind === 'report' && !AFE_BASE_URL) return navigate('report');
+    if (match.kind === 'station' && sourceTime && !catalogError) return openStation(locations[match.siteIndex]);
+    if (match.kind === 'connector' && sourceTime && !catalogError) {
       const site = locations[match.siteIndex];
       const gun = connectors(site).find(g => g.evse_uid === match.evseUid && g.connector_id === match.connectorId);
       if (gun) {
@@ -347,18 +375,12 @@
         return navigate('station');
       }
     }
-    if (catalogError) {
-      feedback.textContent = tr('The station list is unavailable. Refresh it on Home and try again.','暂时无法读取场站目录。请到首页刷新，再试一次。');
-      return;
-    }
-    if (match.kind === 'ambiguous') {
-      feedback.textContent = tr('This code matches several connectors. Select your station from the map.','此编号对应多个枪口，请从地图选择场站。');
-      return;
-    }
     const id = raw.trim();
     const label = /^[A-Za-z0-9_-]{1,36}$/.test(id) ? ` (${id})` : '';
-    feedback.textContent = tr(`No published connector matches this code${label}. Check the code on the charger.`,
-      `场站目录中找不到这个编号${label}。请核对枪口上的二维码。`);
+    scanIssue={kind:match.kind,label};
+    if(catalogError || !sourceTime)scanIssue.retry={raw:id.slice(0,1024),fromCamera};
+    render();
+    if(!fromCamera)root.querySelector('#driver-code').value=id.slice(0,1024);
   }
   function language() {
     chinese = !chinese;
@@ -374,6 +396,7 @@
     const gun = connectors(selectedSite()).find(g => keyForGun(g) === event.target.value);
     if (gun) {
       forgetScan();
+      checkedGun='';
       manuallySelected = true; connectorKey = keyForGun(gun);
       history.replaceState({afeView:page,stationKey,connectorKey},'');
       render();
@@ -393,6 +416,11 @@
     if (!control || control.disabled) return;
     if(control.dataset.account) return void account.act(control.dataset.account,control.dataset.id);
     if (control.dataset.page) return navigate(control.dataset.page);
+    if (control.dataset.scanSite && page==='scan') {
+      const site=locations.find(s=>keyFor(s)===control.dataset.scanSite);
+      if(site && !catalogError)openStation(site);
+      return;
+    }
     if (control.dataset.mapInfo) return stationSheet.open(control.dataset.mapInfo,control);
     if (control.dataset.site !== undefined) {
       const site = locations[Number(control.dataset.site)];
@@ -405,9 +433,18 @@
       case 'language': return language();
       case 'scan-camera':
         pendingScan = null;
+        if(scanIssue){scanIssue=null;render();}
         root.querySelector('[data-scan-message]').textContent = '';
         return void driverScanCamera({root,tr,onCode:(raw,feedback)=>showCode(raw,feedback,true)});
       case 'recheck-plug': return void recheckPlug(false);
+      case 'refresh-gun': {
+        const gun=selectedGun();
+        if(page==='station' && gun){checkedGun=keyForGun(gun);void refreshSites();}
+        return;
+      }
+      case 'refresh-scan':
+        if(scanIssue?.retry)pendingScan=scanIssue.retry;
+        return void refreshSites();
       case 'cancel-plug-check': return cancelPlugStart();
       case 'stop-camera': return driverStopCamera();
       case 'refresh':
