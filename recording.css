@@ -254,3 +254,4 @@ html[data-theme=dark] .station-primary:not(:disabled) { background:#9ce2b1; colo
 }
 .scan-recovery { display:grid; gap:8px; margin-bottom:12px; }
 .scan-recovery .rec-refresh { min-height:46px; color:var(--green-deep); border-color:var(--green); }
+.gun-choice-hint { margin:0 0 .65rem; font-size:.94rem; color:var(--muted); }

@@ -10,7 +10,7 @@
   let locations = [], sourceTime = '', stationKey = '', connectorKey = '';
   let loading = false, catalogError = '', manuallySelected = false;
   let pendingScan = null;
-  let scanIssue = null, checkedGun = '';
+  let scanIssue = null, checkedGun = '', scannedSiteKey = '';
   let scannedPlug = null, plugTimer, catalogRequest;
   const tr = (en, zh) => chinese ? zh : en;
 
@@ -143,8 +143,9 @@
       connectorKey = '';
     }
   }
-  function openStation(site) {
+  function openStation(site,fromStationQr=false) {
     manuallySelected=true;
+    scannedSiteKey=fromStationQr ? keyFor(site) : '';
     connectorKey='';
     chooseSite(site);
     navigate('station');
@@ -253,8 +254,10 @@
         '<span class="gun-status" data-status="' + esc(gun?.status || '') + '">' + esc(state) +
         (payments.preview.usable(gun) && payments.preview.connected(gun)?'<small>'+tr('Connected','已连接')+'</small>':'')+'</span></span></label>';
     }).join('');
+    const instruction=scannedSiteKey===keyFor(site) && !connectorKey ?
+      '<p class="gun-choice-hint">'+tr('Match the connector label on the charger.','请按桩身标识选择你要使用的枪口。')+'</p>':'';
     return '<fieldset class="gun-picker"><legend>' + tr('Select a connector','选择充电枪') +
-      '</legend><div class="gun-grid">' + tiles + '</div></fieldset>';
+      '</legend>'+instruction+'<div class="gun-grid">' + tiles + '</div></fieldset>';
   }
   function reportDetail() {
     return backButton() + '<h1>382 Rivonia</h1><p class="app-muted">Edenburg, Sandton</p>' +
@@ -349,7 +352,7 @@
     const changed=page!==next;
     if(changed && page==='scan'){scanIssue=null;pendingScan=null;}
     if(changed)checkedGun='';
-    if(changed && page==='station'){forgetScan();payments.resetCredit();payments.preview.leave();}
+    if(changed && page==='station'){scannedSiteKey='';forgetScan();payments.resetCredit();payments.preview.leave();}
     page = next;
     if(changed) account.enter(next);
     render();
@@ -365,7 +368,7 @@
     }
     const match = driverResolveCode(raw,locations);
     if (match.kind === 'report' && !AFE_BASE_URL) return navigate('report');
-    if (match.kind === 'station' && sourceTime && !catalogError) return openStation(locations[match.siteIndex]);
+    if (match.kind === 'station' && sourceTime && !catalogError) return openStation(locations[match.siteIndex],fromCamera);
     if (match.kind === 'connector' && sourceTime && !catalogError) {
       const site = locations[match.siteIndex];
       const gun = connectors(site).find(g => g.evse_uid === match.evseUid && g.connector_id === match.connectorId);
@@ -398,6 +401,7 @@
       forgetScan();
       checkedGun='';
       manuallySelected = true; connectorKey = keyForGun(gun);
+      if(scannedSiteKey===stationKey && ['AVAILABLE','PREPARING'].includes(gun.status))rememberScan(gun);
       history.replaceState({afeView:page,stationKey,connectorKey},'');
       render();
       root.querySelector('input[name="charge-connector"]:checked')?.focus({preventScroll:true});
