@@ -1,7 +1,7 @@
-AFE Charge · iPhone PWA · v46
+AFE Charge · iPhone PWA · v47
 
 在 iPhone 上使用
-1. 用 Safari 打开 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v46
+1. 用 Safari 打开 https://yy911628-coder.github.io/afriforge-charge-demo/?v=afe-v47
 2. 点“分享”→“添加到主屏幕”。首页可查看场站与枪口，“我的”“钱包”“订单”需要登录。
 3. 打开 382 Rivonia，点左边的 A 枪或右边的 B 枪。每张卡显示枪型和状态，下方显示所选枪口的充电费用。右上角可切换中英文。
 4. 点“扫码”，把桩屏上的完整二维码对准取景框中央。无需插枪，识别成功后即可查看对应枪口和费率。#01-1 为 ZA41020001000001000100，#01-2 为 ZA41020001000001000101。遇到反光时也可以输入完整枪号，点“查找充电桩”。实际充电须在枪口详情中另行启动。

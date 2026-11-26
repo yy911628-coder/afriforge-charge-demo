@@ -125,14 +125,16 @@
     return '<button class="app-back" type="button" data-page="home"><span aria-hidden="true">‹</span>' +
       tr('Charging stations','充电场站') + '</button>';
   }
-  const rivoniaSite = {country_code:'CN', party_id:'HHD', id:'ZA41020001000001'};
+  const rivoniaSite = {country_code:'ZA', party_id:'AFE', id:'ZA41020001000001'};
   const rivoniaGuns = [
     ['A','ZA41020001000001000100','ZA4102000100000100010001'],
     ['B','ZA41020001000001000101','ZA4102000100000100010101']
   ];
   function gunPicker(site, guns) {
     // Keep the physical left/right labels even if the CPO reorders or omits a connector.
-    const slots = keyFor(site) === keyFor(rivoniaSite) ? rivoniaGuns.map(([letter, uid, id]) => ({
+    const knownSite = site.id === rivoniaSite.id && (keyFor(site) === keyFor(rivoniaSite) ||
+      (site.country_code === 'CN' && site.party_id === 'HHD'));
+    const slots = knownSite ? rivoniaGuns.map(([letter, uid, id]) => ({
       label: tr('Connector ' + letter, letter + ' 枪'),
       gun: guns.find(g => g.evse_uid === uid && g.connector_id === id)
     })) : [];
