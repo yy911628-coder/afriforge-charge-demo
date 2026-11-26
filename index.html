@@ -4,7 +4,14 @@
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#f5f8f5">
+<meta name="theme-color" content="#f5f8f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1511" media="(prefers-color-scheme: dark)">
+<script>
+  const afeAppearance = matchMedia('(prefers-color-scheme: dark)');
+  function applyAfeTheme(){ document.documentElement.dataset.theme = afeAppearance.matches ? 'dark' : 'light'; }
+  applyAfeTheme();
+  afeAppearance.addEventListener('change', applyAfeTheme);
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="AFE Charge">
@@ -102,8 +109,8 @@ html[data-theme="dark"] .wallet-balance-card{border-color:#6cc99866;background:r
 .app-nav{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 64px minmax(0,1fr) minmax(0,1fr)}.app-nav>button:nth-child(1){grid-column:1!important}.app-nav>button:nth-child(2){grid-column:2!important}.app-nav>button:nth-child(3){grid-column:4!important}.app-nav>button:nth-child(4){grid-column:5!important}
 </style>
 <link rel="stylesheet" href="./leaflet.css">
-<link rel="stylesheet" href="./recording.css?v=afe-v47">
-<link rel="stylesheet" href="./account.css?v=afe-v47">
+<link rel="stylesheet" href="./recording.css?v=afe-v48">
+<link rel="stylesheet" href="./account.css?v=afe-v48">
 </head>
 <body>
 <div class="appview">
@@ -113,18 +120,21 @@ html[data-theme="dark"] .wallet-balance-card{border-color:#6cc99866;background:r
       <button type="button" id="afe-language" class="rec-refresh" aria-label="Change language">中文 / EN</button>
     </header>
     <main id="live-charge" class="app-main afe-recording" aria-busy="true"></main>
+    <div id="station-action" hidden></div>
     <div id="driver-navigation"></div>
   </div>
 </div>
-<script src="./config.js?v=afe-v47"></script>
-<script src="./api.js?v=afe-v47"></script>
-<script src="./account-session.js?v=afe-v47"></script>
-<script src="./account-ui.js?v=afe-v47"></script>
-<script src="./production-commands.js?v=afe-v47"></script>
-<script src="./production-payments.js?v=afe-v47"></script>
+<div id="charge-progress" role="status" aria-live="polite" hidden><span class="charge-spinner" aria-hidden="true">ϟ</span><strong></strong></div>
+<script src="./config.js?v=afe-v48"></script>
+<script src="./api.js?v=afe-v48"></script>
+<script src="./account-session.js?v=afe-v48"></script>
+<script src="./account-ui.js?v=afe-v48"></script>
+<script src="./production-commands.js?v=afe-v48"></script>
+<script src="./station-experience.js?v=afe-v48"></script>
+<script src="./production-payments.js?v=afe-v48"></script>
 <script src="./leaflet.js"></script>
-<script src="./driver-home.js?v=afe-v47"></script>
-<script src="./driver-tabs.js?v=afe-v47"></script>
-<script src="./recording.js?v=afe-v47"></script>
+<script src="./driver-home.js?v=afe-v48"></script>
+<script src="./driver-tabs.js?v=afe-v48"></script>
+<script src="./recording.js?v=afe-v48"></script>
 <script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js', {updateViaCache:'none'}).catch(() => {}));</script>
 </body></html>

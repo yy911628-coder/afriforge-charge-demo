@@ -33,7 +33,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     return data?.canCommand && !uncertain && !data.start && data.session.state==='NOT_STARTED' &&
       permitsCheckout(data.target) && ((['wallet','card'].includes(getOrder()?.funding) && data.funding===getOrder().funding) ||
       (p?.status==='AUTHORIZED' && p.attemptId===data.attemptId && same(p.target,data.target))) &&
-      same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' && gun.status==='AVAILABLE';
+      same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' && ['AVAILABLE','PREPARING'].includes(gun.status) && gun.vehicle_connection==='CONNECTED';
   }
   function pollSoon() {
     clearTimeout(poll);
@@ -140,7 +140,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
       }
       if (!data.canCommand && ((capability?.enabled && getPayment()?.status==='AUTHORIZED') || (data.start && !finished()))) {
         body+='<button type="button" class="rec-refresh" data-account="order" data-id="'+esc(order.id)+'">'+tr('Resume charge controls','恢复本次充电操作')+'</button>';
-      } else if (mayStart(gun)) {
+      } else if (!stationView && mayStart(gun)) {
         body+=button('start-charge',tr('Start charging','启动充电'));
       } else if (active() && data.canCommand && !data.stop && !uncertain) {
         body+=button('stop-charge',tr('Stop charging','停止充电'));
@@ -154,5 +154,5 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   document.addEventListener('visibilitychange',()=>{if (!document.hidden && getOrder() && data?.start) void query();});
   function listed(gun) { return capability?.targets.some(t=>same(t,gun))===true; }
   function permitsCheckout(gun) { return capability?.enabled===true && listed(gun); }
-  return {load,query,send,card,clear,permitsCheckout,mayStart,isBusy:()=>busy};
+  return {load,query,send,card,clear,permitsCheckout,mayStart,isBusy:()=>busy,hasStart:()=>!!data?.start};
 }

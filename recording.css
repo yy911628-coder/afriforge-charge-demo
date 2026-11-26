@@ -72,6 +72,47 @@
 .gun-status { display: flex; align-items: center; gap: .35rem; margin-top: .3rem; }
 .gun-status::before { content: ''; width: .5rem; height: .5rem; border-radius: 50%; background: var(--muted); }
 .gun-status[data-status=AVAILABLE]::before { background: var(--green); }
+.gun-status small { color:var(--green-deep); font-size:.7rem; font-weight:650; }
+.station-pin { background:none; border:0; pointer-events:none; }
+.station-pin-halo { position:absolute; bottom:-1px; left:4px; width:40px; height:13px; border-radius:50%; background:#13754d66; box-shadow:0 0 0 5px #49b77936; }
+.station-pin-drop { position:absolute; left:4px; top:3px; width:41px; height:41px; border:3px solid #fff; border-radius:50% 50% 50% 6px;
+  transform:rotate(-45deg); display:grid; place-items:center; background:#147545; color:#e4ff9a; box-shadow:-2px 4px 8px #0a332e55; }
+.station-pin-drop svg { transform:rotate(45deg); width:28px; height:28px; }
+.driver-site .station-facts { display:flex; flex-wrap:wrap; align-items:center; gap:.3rem .75rem; margin-top:.35rem; }
+.driver-site .station-facts .station-availability { background:var(--mint); color:var(--green-deep); padding:.23rem .55rem; font-size:.8rem; border-radius:1rem; font-weight:700; }
+.driver-site .station-facts .driver-site-rate { color:var(--text); font-weight:750; font-size:.92rem; }
+.plug-panel { margin:.2rem 0; display:flex; flex-wrap:wrap; align-items:center; gap:.3rem .65rem; border-radius:12px; padding:.72rem .85rem; background:var(--surface-2); color:var(--text); }
+.plug-panel small { color:var(--muted); }
+.plug-panel[data-plug-state=connected] { background:var(--mint); color:var(--green-deep); box-shadow:inset 3px 0 var(--green); }
+.plug-panel button,.text-action { min-height:42px; border:0; background:transparent; color:var(--green-deep); font:inherit; font-weight:650; cursor:pointer; }
+.plug-panel button { margin-inline-start:auto; }
+.app-root:has(#station-action:not([hidden])) #driver-navigation .app-nav { position:relative; }
+.app-root:has(#station-action:not([hidden])) { min-height:0; }
+#station-action { flex:none; padding:8px 18px 10px; background:var(--surface); border-top:1px solid var(--line); z-index:11; }
+#station-action[hidden],#charge-progress[hidden] { display:none; }
+.dock-hint { display:block; font-size:.76rem; line-height:1.35; margin:0 0 5px; text-align:center; color:var(--muted); }
+.station-primary { display:block; width:100%; min-height:49px; padding:.7rem 1rem; background:#12623e; color:white; border:0; border-radius:14px; font:700 1.05rem/1.35 system-ui,sans-serif; cursor:pointer; }
+.station-primary:disabled { background:var(--surface-2); color:var(--muted); cursor:default; box-shadow:inset 0 0 0 1px var(--line); opacity:1; }
+html[data-theme=dark] .station-primary:not(:disabled) { background:#9ce2b1; color:#10291b; }
+.text-action:focus-visible,.station-primary:focus-visible,.plug-panel button:focus-visible { outline:3px solid var(--green); outline-offset:2px; }
+.preview-note { color:var(--green-deep); font-size:.85rem; }
+.bind-sheet { position:fixed; inset:auto 0 0; width:min(100%,480px); max-width:100%; max-height:90dvh; overflow:auto; margin:0 auto; padding:10px 22px max(22px,env(safe-area-inset-bottom)); border:1px solid var(--line); border-radius:24px 24px 0 0; color:var(--text); background:var(--surface); box-shadow:0 -15px 50px #081c1b38; }
+.bind-sheet::backdrop { background:#0b201bc2; }
+.sheet-handle { width:38px; height:4px; background:var(--subtle); border-radius:5px; margin:0 auto 8px; }
+.sheet-heading,.sheet-row { display:flex; gap:.8rem; align-items:center; }
+.sheet-heading { justify-content:space-between; }
+.sheet-heading h2 { margin:.3rem 0; font-size:1.35rem; }
+.sheet-heading button { border:0; border-radius:50%; color:var(--text); background:var(--surface-2); font-size:1.4rem; min-width:42px; min-height:42px; }
+.bind-sheet>p { color:var(--muted); margin:.4rem 0 1rem; }
+.sheet-field { display:grid; gap:.35rem; margin:.55rem 0; font-weight:600; flex:1; min-width:0; }
+.sheet-field input { min-width:0; width:100%; min-height:48px; padding:8px 12px; font:inherit; font-size:16px; background:var(--surface-2); color:var(--text); border:1px solid var(--line); border-radius:10px; }
+.sheet-field input:focus { outline:2px solid var(--green); }
+.sheet-error { color:var(--danger); margin:.25rem 0; }
+#charge-progress { position:fixed; inset:0; z-index:9999; display:grid; align-content:center; justify-items:center; gap:22px; background:var(--bg); color:var(--text); font-size:1.25rem; }
+.charge-spinner { position:relative; display:grid; width:76px; height:76px; place-items:center; border-radius:50%; background:var(--mint); color:var(--green-deep); font-size:36px; }
+.charge-spinner::before { content:''; position:absolute; inset:-5px; border:3px solid var(--line); border-top-color:var(--green); border-radius:50%; animation:charge-spin .9s linear infinite; }
+@keyframes charge-spin { to {transform:rotate(360deg);} }
+@media (prefers-reduced-motion:reduce) { .charge-spinner::before { animation:none; } }
 .gun-status:is([data-status=CHARGING],[data-status=RESERVED])::before { background: #a86b16; }
 .afe-recording > .station-connectors + .rec-card { margin-top: 14px; }
 .rec-tariff { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .5rem 1rem;

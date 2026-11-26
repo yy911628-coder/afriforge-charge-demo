@@ -12,7 +12,8 @@ function syncDriverMap(root,tr){
   }
   if(mountedDriverMap){mountedDriverMap.map.remove();mountedDriverMap=null;}
   if(!host || !window.L)return;
-  const map=L.map(host,{zoomControl:false,attributionControl:false,scrollWheelZoom:false,minZoom:2,maxZoom:19});
+  const map=L.map(host,{zoomControl:false,attributionControl:false,scrollWheelZoom:false,
+    touchZoom:'center',doubleClickZoom:'center',minZoom:2,maxZoom:19});
   const lat=Number(host.dataset.lat),lon=Number(host.dataset.lon),pin=host.dataset.pin==='yes';
   map.setView([lat,lon],pin?16:14);
   const bounds=L.latLngBounds(rivoniaBounds);
@@ -21,7 +22,13 @@ function syncDriverMap(root,tr){
   const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
     maxZoom:19,referrerPolicy:'origin',keepBuffer:1,updateWhenIdle:true}).addTo(map);
   L.control.zoom({position:'topleft',zoomInTitle:tr('Zoom in','放大'),zoomOutTitle:tr('Zoom out','缩小')}).addTo(map);
-  if(pin)L.circleMarker([lat,lon],{radius:8,color:'#fff',weight:3,fillColor:'#16734b',fillOpacity:1,interactive:false}).addTo(map);
+  if(pin){
+    const point=L.latLng(lat,lon);
+    const icon=L.divIcon({className:'station-pin',iconSize:[48,56],iconAnchor:[24,53],
+      html:'<span class="station-pin-halo"></span><span class="station-pin-drop"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" d="M14.4 1.5 3.9 13.9h6.8L9.4 22.5l10.8-13.2h-6.9z"/></svg></span>'});
+    L.marker(point,{icon,interactive:false,keyboard:false,title:tr('Charging station','充电场站')}).addTo(map);
+    map.on('zoomend',()=>{if(!map.getCenter().equals(point))map.panTo(point,{animate:false});});
+  }
   const update=()=>{
     const status=host.parentElement?.querySelector('[data-map-status]');
     if(!status)return;
@@ -85,7 +92,10 @@ function driverHome({tr, esc, locations, site, loading, catalogError, configured
     const address = isReport ? 'Edenburg, Sandton' : [item.address,item.city].filter(Boolean).join(', ');
     const label = isReport ? tr('From the charging order report','充电订单报表')
       : tr('View connectors','查看枪口');
-    const guns = item?.evses?.flatMap(evse => evse.connectors) || [];
+    const guns = item?.evses?.flatMap(evse => evse.connectors.map(c=>({...c,status:c.status || evse.status}))) || [];
+    const available = guns.filter(c=>c.status==='AVAILABLE').length;
+    const availability = feedReady && guns.length && guns.every(c=>c.status && c.status!=='UNKNOWN') ?
+      tr(available+' / '+guns.length+' available',available+' / '+guns.length+' 枪可用') : tr('Availability pending','可用枪数待确认');
     const rate = guns[0]?.tariff;
     const commonRate = rate?.status === 'verified' && guns.every(gun => gun.tariff?.status === 'verified' &&
       gun.tariff.id === rate.id && gun.tariff.currency === rate.currency && gun.tariff.total_per_kwh === rate.total_per_kwh);
@@ -93,8 +103,9 @@ function driverHome({tr, esc, locations, site, loading, catalogError, configured
       (isReport ? 'data-act="report-site"' : 'data-site="' + index + '"') + '>' +
       '<span class="recommended-avatar" aria-hidden="true">ϟ</span><span class="recommended-copy"><small>' +
       label + '</small><b>' + esc(isReport ? '382 Rivonia' : item.name || item.id) + '</b>' +
-      (commonRate ? '<span class="driver-site-rate">'+esc(rate.total_per_kwh+' '+rate.currency+'/kWh')+'</span>' : '') +
       (address ? '<span>' + esc(address) + '</span>' : '') +
+      '<span class="station-facts"><span class="station-availability">'+availability+'</span><span class="driver-site-rate">'+
+      (feedReady && commonRate ? esc((rate.currency==='ZAR'?'R':rate.currency+' ')+rate.total_per_kwh+'/kWh') : tr('Rate pending','费率待确认'))+'</span></span>'+
       '</span><span class="recommended-arrow" aria-hidden="true">›</span></button>';
   }
 

@@ -32,12 +32,12 @@
     } catch {}
     return false;
   }
-  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account});
+  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account,getGun:()=>selectedGun(),onStation:()=>page==='station'});
   const account=driverAccount({root,tr,esc,navigate,render,getPage:()=>page,getPayments:()=>payments,
     getChargeConnector:()=>page==='station' ? connectorKey : ''});
   const priorSession = hasPriorSession();
   let page = 'home';
-  let renderedPage = '', lastContent = '', lastNav = '';
+  let renderedPage = '', lastContent = '', lastNav = '', lastFooter = '';
   const tabPages = new Set(['home','wallet','scan','orders','profile']);
   function esc(input) {
     return String(input ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -52,18 +52,17 @@
     if (!site) return [];
     return site.evses.flatMap(e => e.connectors.map(c => ({
       country_code:site.country_code, party_id:site.party_id, location_id:site.id, evse_uid:e.uid,
-      connector_id:c.id, standard:c.standard, status:e.status, tariff:c.tariff
+      connector_id:c.id, standard:c.standard, status:catalogError?'UNKNOWN':String(c.status || e.status || 'UNKNOWN').toUpperCase(), tariff:catalogError?null:c.tariff,
+      vehicle_connection:catalogError?'UNKNOWN':(c.vehicle_connection || 'UNKNOWN')
     })));
   }
   const keyForGun = (gun) => JSON.stringify(idFields.map(k=>gun[k]));
   const selectedGun = () => connectors(selectedSite()).find(g=>keyForGun(g)===connectorKey);
-  const eligible = gun => !!gun && gun.standard === 'IEC_62196_T2_COMBO' && gun.status === 'AVAILABLE';
   function chooseSite(site) {
     stationKey = site ? keyFor(site) : '';
     const guns = connectors(site);
     if (!guns.some(g=>keyForGun(g) === connectorKey)) {
-      const first = guns.find(eligible) || guns.find(g=>g.standard==='IEC_62196_T2_COMBO') || guns[0];
-      connectorKey = first ? keyForGun(first) : '';
+      connectorKey = '';
     }
   }
   function resumeConnector(target) {
@@ -77,7 +76,7 @@
 
   async function refreshSites() {
     if (loading || !AFE_BASE_URL) return;
-    loading = true; catalogError = ''; render();
+    loading = true; render();
     try {
       const data = await AFEApi.stations();
       if (data?.source !== 'cpo' || !Array.isArray(data.locations) || !Number.isFinite(Date.parse(data.checkedAt))) {
@@ -92,6 +91,7 @@
         }
       }
       locations = data.locations;
+      catalogError = '';
       sourceTime = new Date(data.checkedAt).toISOString();
       const rivonia = locations.find(site => [site.name, site.address].some(
         value => typeof value === 'string' && /\b382\s+rivonia\b/i.test(value)));
@@ -100,7 +100,7 @@
       chooseSite(previous || rivonia || locations[0]);
       if (!manuallySelected && payments.target()) resumeConnector(payments.target());
     } catch (error) {
-      locations = []; sourceTime = ''; chooseSite(null);
+      sourceTime = '';
       catalogError = error instanceof ChargeApiError ? error.code : 'FEED_UNREACHABLE';
     } finally {
       loading = false;
@@ -111,6 +111,7 @@
     }
   }
   function statusLabel(raw) {
+    if(raw==='PREPARING')return tr('Preparing','准备中');
     switch (raw) {
       case 'UNKNOWN': return tr('Standby / unknown','待机/未知');
       case 'AVAILABLE': return tr('Available','可用');
@@ -147,13 +148,14 @@
     if (!slots.length) return '<p>' + tr('No connectors published for this station.','该场站尚未发布枪口。') + '</p>';
     const tiles = slots.map(({label,gun}) => {
       const value = gun && keyForGun(gun);
-      const attrs = gun ? ' value="' + esc(value) + '"' + (value === connectorKey ? ' checked' : '') : ' disabled';
+      const attrs = gun ? ' value="' + esc(value) + '"' + (value === connectorKey ? ' checked' : '') + (payments.preview.session()?' disabled':'') : ' disabled';
       const standard = gun?.standard === 'IEC_62196_T2_COMBO' ? 'CCS2' : gun?.standard;
       const state = gun ? statusLabel(gun.status) : tr('Status unavailable','暂无状态');
       return '<label class="gun-option"><input type="radio" name="charge-connector"' + attrs + '>' +
         '<span class="gun-tile"><strong>' + label + '</strong><span class="gun-mark" aria-hidden="true"></span>' +
         (standard ? '<span class="gun-type">' + esc(standard) + '</span>' : '') +
-        '<span class="gun-status" data-status="' + esc(gun?.status || '') + '">' + esc(state) + '</span></span></label>';
+        '<span class="gun-status" data-status="' + esc(gun?.status || '') + '">' + esc(state) +
+        (payments.preview.usable(gun) && payments.preview.connected(gun)?'<small>'+tr('Connected','已连接')+'</small>':'')+'</span></span></label>';
     }).join('');
     return '<fieldset class="gun-picker"><legend>' + tr('Select a connector','选择充电枪') +
       '</legend><div class="gun-grid">' + tiles + '</div></fieldset>';
@@ -190,7 +192,7 @@
     return backButton() + '<h1>' + esc(site.name || tr('Charging station','充电场站')) + '</h1><p class="app-muted">' +
       esc([site.address,site.city].filter(Boolean).join(', ')) + '</p>' + directions +
       '<section class="app-card rec-card station-connectors">' + gunPicker(site,guns) +
-      (gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
+      payments.preview.banner(gun)+(gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
   }
   function browse() {
     if (page === 'home') return driverHome({tr,esc,locations,site:selectedSite(),loading,catalogError,configured:!!AFE_BASE_URL,sourceTime});
@@ -206,6 +208,7 @@
     return screen;
   }
   function render() {
+    payments.preview.syncOwner();
     document.documentElement.lang = chinese ? 'zh-CN' : 'en';
     langButton.textContent = chinese ? 'English' : '中文';
     langButton.setAttribute('aria-label',chinese ? 'Switch to English' : '切换为中文');
@@ -223,14 +226,24 @@
     }
     const nav = driverNav(tr,account.handles(page) && !['wallet','orders'].includes(page)?'profile':page);
     if (lastNav !== nav) { navRoot.innerHTML = nav; lastNav = nav; }
+    const dock=document.getElementById('station-action'),footer=page==='station'?payments.footer(selectedGun()):'';
+    if(lastFooter!==footer){dock.innerHTML=footer;lastFooter=footer;}
+    dock.hidden=!footer;
+    const overlay=document.getElementById('charge-progress');
+    overlay.hidden=!(page==='station' && payments.isStarting());
+    if(!overlay.hidden)overlay.querySelector('strong').textContent=payments.preview.preview()?tr('Starting demo charging…','正在模拟启动充电…'):tr('Starting your charging session…','正在启动充电…');
+    root.closest('.app-root').inert=!overlay.hidden;
   }
   function navigate(next, push = true) {
     if (!tabPages.has(next) && !account.handles(next) && !['station','report'].includes(next)) return;
     next=account.target(next);
     if (next !== page && push) history.pushState({afeView:next,stationKey,connectorKey},'');
-    const changed=page!==next;page = next;
+    const changed=page!==next;
+    if(changed && page==='station')payments.preview.leave();
+    page = next;
     if(changed) account.enter(next);
     render();
+    if(changed && next==='station' && (!sourceTime || Date.now()-Date.parse(sourceTime)>8000))void refreshSites();
   }
   function showCode(raw, feedback = root.querySelector('[data-scan-message]')) {
     if (!feedback) return;
@@ -269,6 +282,7 @@
     render();
   }
   root.addEventListener('change', event => {
+    if(event.target.matches('[data-station-vehicle]')){payments.chooseVehicle(event.target.value);return;}
     if (event.target.matches('select[data-charge-card]')) { payments.chooseCard(event.target.value); return; }
     if (page !== 'station' || !event.target.matches('input[name="charge-connector"]:checked')) return;
     const gun = connectors(selectedSite()).find(g => keyForGun(g) === event.target.value);
@@ -294,7 +308,7 @@
     if (control.dataset.page) return navigate(control.dataset.page);
     if (control.dataset.site !== undefined) {
       const site = locations[Number(control.dataset.site)];
-      if (site) { manuallySelected = true; chooseSite(site); navigate('station'); }
+      if (site) { manuallySelected = true; connectorKey='';chooseSite(site); navigate('station'); }
       return;
     }
     switch (control.dataset.act) {
@@ -310,6 +324,9 @@
         void refreshSites(); void payments.loadCapability(); void payments.loadCommands(); return;
       default: payments.action(control.dataset.act,selectedGun());
     }
+  });
+  document.getElementById('station-action').addEventListener('click',e=>{
+    const b=e.target.closest('button[data-act]');if(b && !b.disabled && page==='station')payments.action(b.dataset.act,selectedGun());
   });
   navRoot.addEventListener('click', event => {
     const tab = event.target.closest('button[data-page]');
@@ -332,9 +349,9 @@
     const returned=account.takeCardReturn();
     if (returned) {
       await sitesReady;
-      const site=locations.find(s=>connectors(s).some(g=>keyForGun(g)===returned));
+      const site=locations.find(s=>connectors(s).some(g=>keyForGun(g)===returned.connector));
       if (site && (page==='home' || page==='account-loading')) {
-        chooseSite(site); connectorKey=returned; manuallySelected=true; next='station';
+        chooseSite(site); connectorKey=returned.connector; manuallySelected=true; next='station';payments.linked(returned.cardId,returned.vehicleId);
         history.replaceState({afeView:next,stationKey,connectorKey},'');
       }
     }
@@ -343,4 +360,10 @@
   });
   void Promise.all([sitesReady,payments.loadCapability(),payments.loadCommands(),ready])
     .then(async()=>{if(account.active()){await payments.checkStatus();await payments.finishReturn(resumeConnector);}});
+  function pollCatalog(){
+    if(document.hidden)return;
+    if(page==='station' || (page==='home' && (!sourceTime || Date.now()-Date.parse(sourceTime)>=30000)))void refreshSites();
+  }
+  setInterval(pollCatalog,8000);
+  document.addEventListener('visibilitychange',pollCatalog);
 })();

@@ -29,9 +29,12 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   let initial=resetCode?'reset':['delete','login','wallet','register','forgot'].includes(requested)?requested:null;
   const cardReturnKey='afe.card-link.connector.'+AFE_BASE_URL;
   const cardLinkReturn=requested==='wallet' && entry.searchParams.has('card_link');
+  const cardLinkVerified=cardLinkReturn && entry.searchParams.get('card_link')==='verified';
+  const returnedCardId=cardLinkVerified ? resetParams.get('linked_card') : null;
   if(cardLinkReturn){
     notice=entry.searchParams.get('card_link')==='verified'?tr('Card linked.','银行卡已绑定。'):tr('Card verification was not completed. You can try again.','银行卡验证未完成，可以重新绑定。');
     entry.searchParams.delete('card_link');
+    if(resetParams.has('linked_card')){resetParams.delete('linked_card');entry.hash=resetParams.toString();}
   }
   if(requested){entry.searchParams.delete('account');history.replaceState(null,'',entry.pathname+entry.search+entry.hash);}
   const api=(path,method,body)=>AFEApi.account(path,method,body);
@@ -41,7 +44,10 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       const raw=sessionStorage.getItem(cardReturnKey);
       sessionStorage.removeItem(cardReturnKey);
       const saved=JSON.parse(raw);
-      if (profile?.user.uid && saved?.owner===profile.user.uid && saved.until>Date.now() && typeof saved.connector==='string') return saved.connector;
+      if (profile?.user.uid && saved?.owner===profile.user.uid && saved.until>Date.now() && typeof saved.connector==='string') {
+        const card=cardLinkVerified && profile.cards.find(c=>c.direct && c.id===returnedCardId);
+        return {connector:saved.connector,cardId:card?.id,vehicleId:saved.vehicleId};
+      }
     } catch {}
     return '';
   }
@@ -65,7 +71,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   }
   function announce(message,bad=false) {
     notice=message;
-    const node=root.querySelector('[data-account-message]');
+    const node=document.querySelector('dialog.bind-sheet[open] [data-account-message]') || root.querySelector('[data-account-message]');
     if(node){node.textContent=message;node.setAttribute('role',bad?'alert':'status');}
   }
   function describe(e){
@@ -412,7 +418,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
         const result=await api('/me/cards/bind','POST',{consent:'afe-variable-charge-v1'}),url=new URL(result.url);
         if(url.origin!==new URL(AFE_BASE_URL).origin || url.pathname!=='/api/cards/bind/page' || !/^[\w-]{43}$/.test(url.searchParams.get('state') || ''))throw new Error('Invalid card binding address');
         try {
-          if(connector) sessionStorage.setItem(cardReturnKey,JSON.stringify({connector,owner,until:Date.now()+30*60000}));
+          if(connector) sessionStorage.setItem(cardReturnKey,JSON.stringify({connector,owner,vehicleId:getPayments().vehicle(),until:Date.now()+30*60000}));
           else sessionStorage.removeItem(cardReturnKey);
         } catch {}
         location.assign(url.href);
@@ -517,6 +523,6 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     if(next==='login' && profile)next='profile';
     return target(next);
   }
-  return {screen,target,enter,start,submit,act,cardBinding,takeCardReturn,savedCards:()=>profile?.cards || [],chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
+  return {screen,target,enter,start,submit,act,cardBinding,takeCardReturn,savedCards:()=>profile?.cards || [],vehicles:()=>profile?.vehicles || [],owner:()=>profile?.user.uid || '',chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
     handles:page=>page==='account-loading'||protectedPages.has(page)||publicPages.has(page)};
 }
