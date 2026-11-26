@@ -110,8 +110,8 @@ html[data-theme="dark"] .wallet-balance-card{border-color:#6cc99866;background:r
 .plug-recheck { margin: .8rem 0; }.plug-recheck p { margin: .45rem 0; font-size: .9rem; }
 </style>
 <link rel="stylesheet" href="./leaflet.css">
-<link rel="stylesheet" href="./recording.css?v=afe-v49">
-<link rel="stylesheet" href="./account.css?v=afe-v49">
+<link rel="stylesheet" href="./recording.css?v=afe-v50">
+<link rel="stylesheet" href="./account.css?v=afe-v50">
 </head>
 <body>
 <div class="appview">
@@ -126,16 +126,33 @@ html[data-theme="dark"] .wallet-balance-card{border-color:#6cc99866;background:r
   </div>
 </div>
 <div id="charge-progress" role="status" aria-live="polite" hidden><span class="charge-spinner" aria-hidden="true">ϟ</span><strong></strong></div>
-<script src="./config.js?v=afe-v49"></script>
-<script src="./api.js?v=afe-v49"></script>
-<script src="./account-session.js?v=afe-v49"></script>
-<script src="./account-ui.js?v=afe-v49"></script>
-<script src="./production-commands.js?v=afe-v49"></script>
-<script src="./station-experience.js?v=afe-v49"></script>
-<script src="./production-payments.js?v=afe-v49"></script>
+<dialog id="map-station-sheet" class="bind-sheet map-station-sheet" aria-labelledby="map-station-name">
+  <div class="sheet-handle" aria-hidden="true"></div>
+  <div class="sheet-heading">
+    <h2 id="map-station-name" data-map-field="name"></h2>
+    <button type="button" data-map-close autofocus aria-label="Close station details">×</button>
+  </div>
+  <p class="map-station-address" data-map-field="address"></p>
+  <dl class="map-station-facts">
+    <div><dt data-map-field="power-label"></dt><dd data-map-field="power"></dd></div>
+    <div><dt data-map-field="guns-label"></dt><dd data-map-field="guns"></dd></div>
+    <div class="map-station-rate"><dt data-map-field="price-label"></dt><dd data-map-field="price"></dd></div>
+  </dl>
+  <div class="map-station-actions">
+    <a class="station-primary" data-map-directions target="_blank" rel="noopener noreferrer"><span data-map-field="navigate"></span> <span aria-hidden="true">↗</span></a>
+    <button type="button" data-map-connectors></button>
+  </div>
+</dialog>
+<script src="./config.js?v=afe-v50"></script>
+<script src="./api.js?v=afe-v50"></script>
+<script src="./account-session.js?v=afe-v50"></script>
+<script src="./account-ui.js?v=afe-v50"></script>
+<script src="./production-commands.js?v=afe-v50"></script>
+<script src="./station-experience.js?v=afe-v50"></script>
+<script src="./production-payments.js?v=afe-v50"></script>
 <script src="./leaflet.js"></script>
-<script src="./driver-home.js?v=afe-v49"></script>
-<script src="./driver-tabs.js?v=afe-v49"></script>
-<script src="./recording.js?v=afe-v49"></script>
+<script src="./driver-home.js?v=afe-v50"></script>
+<script src="./driver-tabs.js?v=afe-v50"></script>
+<script src="./recording.js?v=afe-v50"></script>
 <script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js', {updateViaCache:'none'}).catch(() => {}));</script>
 </body></html>

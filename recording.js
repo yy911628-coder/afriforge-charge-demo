@@ -47,8 +47,13 @@
     if (value == null || value === '') return '';
     return '<div class="rec-pair"><dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd></div>';
   }
-  const keyFor = (site) => JSON.stringify([site.country_code,site.party_id,site.id]);
+  const keyFor = driverStationKey;
   const selectedSite = () => locations.find(s => keyFor(s) === stationKey);
+  const stationSheet = driverStationSheet({
+    tr, findSite:key=>page==='home' && locations.find(site=>keyFor(site)===key),
+    isFresh:()=>!!sourceTime && !catalogError && !!AFE_BASE_URL,
+    viewConnectors:openStation
+  });
   function connectors(site) {
     if (!site) return [];
     return site.evses.flatMap(e => e.connectors.map(c => ({
@@ -136,6 +141,12 @@
     if (!guns.some(g=>keyForGun(g) === connectorKey)) {
       connectorKey = '';
     }
+  }
+  function openStation(site) {
+    manuallySelected=true;
+    connectorKey='';
+    chooseSite(site);
+    navigate('station');
   }
   function resumeConnector(target) {
     if (manuallySelected) return selectedGun();
@@ -253,18 +264,9 @@
     if (!site) return backButton() + '<p class="app-card" role="status">' +
       tr('Station details are temporarily unavailable.','暂时无法获取场站详情。') + '</p>';
     const gun = selectedGun(), guns = connectors(site);
-    const {latitude,longitude} = site.coordinates || {};
-    const validCoordinate = (value,limit) => typeof value === 'string' && value.trim() !== '' &&
-      Number.isFinite(Number(value)) && Math.abs(Number(value)) <= limit;
-    let directions = '';
-    if (validCoordinate(latitude,90) && validCoordinate(longitude,180)) {
-      const destination = new URL('https://www.openstreetmap.org/');
-      destination.searchParams.set('mlat',latitude);
-      destination.searchParams.set('mlon',longitude);
-      destination.hash = 'map=16/' + latitude + '/' + longitude;
-      directions = '<a class="driver-map-link" target="_blank" rel="noopener noreferrer" href="' +
-        esc(destination.href) + '">' + tr('View station on map ↗','查看场站位置 ↗') + '</a>';
-    }
+    const destination=stationDirections(site);
+    const directions=destination ? '<a class="driver-map-link" target="_blank" rel="noopener noreferrer" href="' +
+      esc(destination) + '">' + tr('Get directions ↗','导航到这里 ↗') + '</a>' : '';
     return backButton() + '<h1>' + esc(site.name || tr('Charging station','充电场站')) + '</h1><p class="app-muted">' +
       esc([site.address,site.city].filter(Boolean).join(', ')) + '</p>' + directions +
       '<section class="app-card rec-card station-connectors">' + gunPicker(site,guns) +
@@ -295,11 +297,12 @@
       const openPanels = samePage ? Array.from(root.querySelectorAll('details'), item => item.open) : [];
       if (renderedPage === 'scan') driverStopCamera();
       root.innerHTML = content;
-      syncDriverMap(root,tr);
       root.querySelectorAll('details').forEach((item,i) => { if (openPanels[i]) item.open = true; });
       root.scrollTop = scroll;
       lastContent = content; renderedPage = page;
     }
+    syncDriverMap(root,tr,locations,stationSheet.open);
+    stationSheet.update();
     const nav = driverNav(tr,account.handles(page) && !['wallet','orders'].includes(page)?'profile':page);
     if (lastNav !== nav) { navRoot.innerHTML = nav; lastNav = nav; }
     const gun=selectedGun();
@@ -390,9 +393,10 @@
     if (!control || control.disabled) return;
     if(control.dataset.account) return void account.act(control.dataset.account,control.dataset.id);
     if (control.dataset.page) return navigate(control.dataset.page);
+    if (control.dataset.mapInfo) return stationSheet.open(control.dataset.mapInfo,control);
     if (control.dataset.site !== undefined) {
       const site = locations[Number(control.dataset.site)];
-      if (site) { manuallySelected = true; connectorKey='';chooseSite(site); navigate('station'); }
+      if (site) openStation(site);
       return;
     }
     switch (control.dataset.act) {

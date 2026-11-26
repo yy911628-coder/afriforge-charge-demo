@@ -1,13 +1,102 @@
 /* The local map is rendered from OSM data. Its bounds use the same projection as the live tiles. */
 const rivoniaBounds=[[-26.088,28.022],[-26.022,28.102]];
 const rivoniaCenter=[-26.0533333,28.0594444];
+const driverStationKey=site=>JSON.stringify([site.country_code,site.party_id,site.id]);
+
+function stationCoordinates(site) {
+  const {latitude,longitude}=site?.coordinates || {};
+  const valid=(value,limit)=>(typeof value==='number' || (typeof value==='string' && value.trim()!=='')) &&
+    Number.isFinite(Number(value)) && Math.abs(Number(value))<=limit;
+  return valid(latitude,90) && valid(longitude,180) ? [Number(latitude),Number(longitude)] : null;
+}
+
+function stationDirections(site) {
+  const point=stationCoordinates(site);
+  if (!point) return '';
+  const destination=point.join(',');
+  const apple=/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  const url=new URL(apple?'https://maps.apple.com/':'https://www.google.com/maps/dir/');
+  url.search=apple ? new URLSearchParams({daddr:destination,dirflg:'d'}) :
+    new URLSearchParams({api:'1',destination,travelmode:'driving',dir_action:'navigate'});
+  return url.href;
+}
+
+function driverStationFacts(site,fresh,tr) {
+  const guns=site?.evses.flatMap(evse=>evse.connectors.map(c=>({...c,status:c.status || evse.status}))) || [];
+  const count=guns.length;
+  const known=fresh && site && guns.every(gun=>gun.status && gun.status!=='UNKNOWN');
+  const available=guns.filter(gun=>gun.status==='AVAILABLE').length;
+  const availability=known ? tr(available+' / '+count+' available',available+' / '+count+' 枪可用') :
+    site ? tr(count+' connectors · availability pending','共 '+count+' 枪 · 可用数待确认') : tr('Availability pending','可用枪数待确认');
+  const powerKnown=count>0 && guns.every(gun=>Number.isSafeInteger(gun.max_electric_power) && gun.max_electric_power>0);
+  const power=powerKnown ? guns.reduce((max,gun)=>Math.max(max,gun.max_electric_power),0)/1000+' kW' : tr('Not published','待公布');
+  let price=tr('Rate pending','费率待确认');
+  if (fresh && count>0 && guns.every(gun=>gun.tariff?.status==='verified' && gun.tariff.currency && gun.tariff.total_per_kwh!=null)) {
+    const rate=guns[0].tariff;
+    price=guns.every(gun=>gun.tariff.currency===rate.currency && gun.tariff.total_per_kwh===rate.total_per_kwh) ?
+      (rate.currency==='ZAR'?'R':rate.currency+' ')+rate.total_per_kwh+'/kWh' : tr('Varies by connector','按枪口计价');
+  }
+  return {availability,power,price};
+}
+
+function driverStationSheet({tr,findSite,isFresh,viewConnectors}) {
+  const sheet=document.getElementById('map-station-sheet');
+  const field=name=>sheet.querySelector('[data-map-field="'+name+'"]');
+  const closeButton=sheet.querySelector('[data-map-close]'),connectors=sheet.querySelector('[data-map-connectors]');
+  const directions=sheet.querySelector('[data-map-directions]');
+  let key='',opener=null;
+  function update() {
+    if (!key) return;
+    const site=findSite(key);
+    if (!site || !stationCoordinates(site)) {sheet.close();return;}
+    const facts=driverStationFacts(site,isFresh(),tr);
+    field('name').textContent=site.name || tr('Charging station','充电场站');
+    field('address').textContent=site.address || site.city || '';
+    field('power-label').textContent=tr('Max per connector','单枪最高功率');
+    field('power').textContent=facts.power;
+    field('guns-label').textContent=tr('Connectors','充电枪');
+    field('guns').textContent=facts.availability;
+    field('price-label').textContent=tr('Charging rate','充电费率');
+    field('price').textContent=facts.price;
+    directions.href=stationDirections(site);
+    field('navigate').textContent=tr('Get directions','导航到这里');
+    connectors.textContent=tr('View connectors','查看枪口');
+    closeButton.setAttribute('aria-label',tr('Close station details','关闭场站信息'));
+  }
+  closeButton.addEventListener('click',()=>sheet.close());
+  sheet.addEventListener('click',event=>{
+    if(event.target!==sheet)return;
+    const box=sheet.getBoundingClientRect();
+    if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom)sheet.close();
+  });
+  sheet.addEventListener('close',()=>{
+    if(sheet.open)return;
+    key='';
+    if(opener?.isConnected)opener.focus({preventScroll:true});
+    opener=null;
+  });
+  connectors.addEventListener('click',()=>{
+    const site=findSite(key);
+    sheet.close();
+    if(site)viewConnectors(site);
+  });
+  return {update,open(stationKey,element){
+    if(!stationCoordinates(findSite(stationKey)))return;
+    key=stationKey;opener=element;update();
+    if(!sheet.open)sheet.showModal();
+  }};
+}
+
 let mountedDriverMap=null;
-function syncDriverMap(root,tr){
+function syncDriverMap(root,tr,sites,onSelect){
   const host=root.querySelector('[data-driver-map]');
   if(mountedDriverMap && host && mountedDriverMap.key===host.dataset.driverMap){
-    host.replaceWith(mountedDriverMap.host);
-    mountedDriverMap.map.invalidateSize({pan:false});
-    mountedDriverMap.update();
+    if(host!==mountedDriverMap.host){
+      host.replaceWith(mountedDriverMap.host);
+      mountedDriverMap.map.invalidateSize({pan:false});
+      mountedDriverMap.update();
+    }
+    mountedDriverMap.syncPins(sites);
     return;
   }
   if(mountedDriverMap){mountedDriverMap.map.remove();mountedDriverMap=null;}
@@ -22,13 +111,43 @@ function syncDriverMap(root,tr){
   const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
     maxZoom:19,referrerPolicy:'origin',keepBuffer:1,updateWhenIdle:true}).addTo(map);
   L.control.zoom({position:'topleft',zoomInTitle:tr('Zoom in','放大'),zoomOutTitle:tr('Zoom out','缩小')}).addTo(map);
-  if(pin){
-    const point=L.latLng(lat,lon);
-    const icon=L.divIcon({className:'station-pin',iconSize:[48,56],iconAnchor:[24,53],
-      html:'<span class="station-pin-halo"></span><span class="station-pin-drop"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" d="M14.4 1.5 3.9 13.9h6.8L9.4 22.5l10.8-13.2h-6.9z"/></svg></span>'});
-    L.marker(point,{icon,interactive:false,keyboard:false,title:tr('Charging station','充电场站')}).addTo(map);
-    map.on('zoomend',()=>{if(!map.getCenter().equals(point))map.panTo(point,{animate:false});});
+  const pins=new Map();
+  let focusedKey=null;
+  const icon=L.divIcon({className:'station-pin',iconSize:[48,56],iconAnchor:[24,53],
+    html:'<span class="station-pin-halo"></span><span class="station-pin-drop"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="currentColor" d="M14.4 1.5 3.9 13.9h6.8L9.4 22.5l10.8-13.2h-6.9z"/></svg></span>'});
+  function syncPins(locations) {
+    const seen=new Set();
+    for(const site of locations){
+      const point=stationCoordinates(site);
+      if(!point || Math.abs(point[0])>85.05)continue;
+      const key=driverStationKey(site);
+      seen.add(key);
+      let marker=pins.get(key);
+      if(!marker){
+        marker=L.marker(point,{icon,keyboard:true}).addTo(map);
+        const element=marker.getElement();
+        element.setAttribute('aria-haspopup','dialog');
+        element.setAttribute('aria-controls','map-station-sheet');
+        const select=()=>{focusedKey=key;onSelect(key,element);};
+        marker.on('click',select);
+        element.addEventListener('keydown',event=>{
+          if(event.key!=='Enter' && event.key!==' ')return;
+          event.preventDefault();event.stopPropagation();
+          if(!event.repeat)select();
+        });
+        pins.set(key,marker);
+      } else if(!marker.getLatLng().equals(point))marker.setLatLng(point);
+      const label=tr('Station details: ','场站信息：')+(site.name || tr('Charging station','充电场站'));
+      marker.getElement().setAttribute('aria-label',label);
+      marker.getElement().title=label;
+    }
+    for(const [key,marker] of pins)if(!seen.has(key)){marker.remove();pins.delete(key);}
   }
+  syncPins(sites);
+  map.on('zoomend',()=>{
+    const point=pins.get(focusedKey)?.getLatLng() || (pin && L.latLng(lat,lon));
+    if(point && !map.getCenter().equals(point))map.panTo(point,{animate:false});
+  });
   const update=()=>{
     const status=host.parentElement?.querySelector('[data-map-status]');
     if(!status)return;
@@ -40,7 +159,7 @@ function syncDriverMap(root,tr){
     status.hidden=visible || local;
     status.textContent=tr('Street map unavailable here. Open the map below.','此区域的在线街道地图暂不可用，可点下方打开地图。');
   };
-  mountedDriverMap={host,map,key:host.dataset.driverMap,update};
+  mountedDriverMap={host,map,key:host.dataset.driverMap,update,syncPins};
   tiles.on('tileload load tileerror',update);
   map.on('moveend zoomend',update);
   update();
@@ -53,59 +172,46 @@ function driverHome({tr, esc, locations, site, loading, catalogError, configured
   const title = tr('Find a charger', '找充电站');
   const refresh = tr('Refresh station status', '刷新场站状态');
 
-  function coordinate(value, limit) {
-    if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
-    const n = Number(value);
-    return Number.isFinite(n) && Math.abs(n) <= limit ? n : null;
-  }
-  const latitude = coordinate(selected?.coordinates?.latitude, 90);
-  const longitude = coordinate(selected?.coordinates?.longitude, 180);
-  const located = latitude !== null && longitude !== null;
-  const rivonia = !selected || [selected.name, selected.address].some(value => /\b382\s+rivonia\b/i.test(value || ''));
+  const mapSite = stationCoordinates(selected) ? selected : locations.find(item=>stationCoordinates(item)) || selected;
+  const point = stationCoordinates(mapSite);
+  const located = !!point;
+  const rivonia = !mapSite || [mapSite.name, mapSite.address].some(value => /\b382\s+rivonia\b/i.test(value || ''));
   let mapLink = '';
   let mapContent = '';
   if (located || rivonia) {
-    const lat = located ? latitude : rivoniaCenter[0];
-    const lon = located ? longitude : rivoniaCenter[1];
+    const [lat,lon] = point || rivoniaCenter;
     const zoom = located ? 16 : 14;
-    mapLink = 'https://www.openstreetmap.org/' + (located ? '?mlat=' + lat + '&mlon=' + lon : '') +
-      '#map=' + zoom + '/' + lat + '/' + lon;
-    if (Math.abs(lat) <= 85.05) {
+    mapLink = located ? stationDirections(mapSite) : 'https://www.openstreetmap.org/#map=' + zoom + '/' + lat + '/' + lon;
+    if (window.L && Math.abs(lat) <= 85.05) {
       mapContent='<div class="driver-live-map" role="region" aria-label="'+tr('Street map','街道地图')+'" data-driver-map="'+
         [lat,lon,zoom,tr('en','zh')].join('/')+'" data-lat="'+lat+'" data-lon="'+lon+'" data-pin="'+(located?'yes':'no')+'"></div>'+
         '<span class="driver-map-status" data-map-status role="status" hidden></span>';
     }
   }
   const area = located
-    ? selected.city || selected.name || tr('Station location','场站位置')
+    ? mapSite.city || mapSite.name || tr('Station location','场站位置')
     : rivonia ? tr('Rivonia, Sandton','桑顿 · Rivonia') : selected.name || tr('Station location','场站位置');
   const mapCaption = located ? tr('Station location', '场站位置') :
     rivonia ? tr('Area overview', '区域概览') : tr('Coordinates unavailable', '场站坐标待发布');
   const mapAlternative = mapLink ? '<a class="driver-map-link" href="' + esc(mapLink) +
-    '" target="_blank" rel="noopener noreferrer">' + tr('Open map ↗', '打开地图 ↗') + '</a>' : '';
+    '" target="_blank" rel="noopener noreferrer">' + (located ? tr('Get directions ↗','导航到这里 ↗') : tr('Open map ↗','打开地图 ↗')) + '</a>' : '';
   const fallback = '<div class="driver-map-placeholder"><span class="driver-map-fallback-icon" aria-hidden="true">⌖</span>' +
     '<strong>' + esc(reportOnly ? 'Edenburg, Sandton' : area) + '</strong>' +
-    '<span>' + (mapLink ? tr('Map preview unavailable','地图预览暂不可用') : mapCaption) + '</span>' + mapAlternative + '</div>';
+    '<span>' + (mapLink ? tr('Map preview unavailable','地图预览暂不可用') : mapCaption) + '</span>' +
+    (located ? '<button type="button" data-map-info="'+esc(driverStationKey(mapSite))+'">'+tr('Station details','查看场站信息')+'</button>' : '')+'</div>';
 
   function stationButton(item, index) {
     const isReport = index === null;
     const address = isReport ? 'Edenburg, Sandton' : [item.address,item.city].filter(Boolean).join(', ');
     const label = isReport ? tr('From the charging order report','充电订单报表')
       : tr('View connectors','查看枪口');
-    const guns = item?.evses?.flatMap(evse => evse.connectors.map(c=>({...c,status:c.status || evse.status}))) || [];
-    const available = guns.filter(c=>c.status==='AVAILABLE').length;
-    const availability = feedReady && guns.length && guns.every(c=>c.status && c.status!=='UNKNOWN') ?
-      tr(available+' / '+guns.length+' available',available+' / '+guns.length+' 枪可用') : tr('Availability pending','可用枪数待确认');
-    const rate = guns[0]?.tariff;
-    const commonRate = rate?.status === 'verified' && guns.every(gun => gun.tariff?.status === 'verified' &&
-      gun.tariff.id === rate.id && gun.tariff.currency === rate.currency && gun.tariff.total_per_kwh === rate.total_per_kwh);
+    const {availability,price}=driverStationFacts(item,feedReady,tr);
     return '<button type="button" class="recommended-card driver-site" ' +
       (isReport ? 'data-act="report-site"' : 'data-site="' + index + '"') + '>' +
       '<span class="recommended-avatar" aria-hidden="true">ϟ</span><span class="recommended-copy"><small>' +
       label + '</small><b>' + esc(isReport ? '382 Rivonia' : item.name || item.id) + '</b>' +
       (address ? '<span>' + esc(address) + '</span>' : '') +
-      '<span class="station-facts"><span class="station-availability">'+availability+'</span><span class="driver-site-rate">'+
-      (feedReady && commonRate ? esc((rate.currency==='ZAR'?'R':rate.currency+' ')+rate.total_per_kwh+'/kWh') : tr('Rate pending','费率待确认'))+'</span></span>'+
+      '<span class="station-facts"><span class="station-availability">'+esc(availability)+'</span><span class="driver-site-rate">'+esc(price)+'</span></span>'+
       '</span><span class="recommended-arrow" aria-hidden="true">›</span></button>';
   }
 
