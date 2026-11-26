@@ -61,9 +61,6 @@ function driverTab({page, tr, paymentCard = '', hasOrder = false, scanFeedback =
   return '';
 }
 
-// A shared QR identifies the cabinet. A connector still requires a separate selection.
-const rivoniaCabinetCodes = new Set(['ZA410200010000010001','666444852015']);
-
 // Treat QR payloads as data. Use exact matches and never navigate to the scanned text.
 function driverResolveCode(raw, locations) {
   const code = typeof raw === 'string' ? raw.trim() : '';
@@ -72,7 +69,7 @@ function driverResolveCode(raw, locations) {
   locations.forEach((site,siteIndex) => {
     const rivoniaCabinet=site.id==='ZA41020001000001' &&
       ((site.country_code==='ZA' && site.party_id==='AFE') || (site.country_code==='CN' && site.party_id==='HHD')) &&
-      rivoniaCabinetCodes.has(code);
+      code==='ZA410200010000010001';
     if(code===site.id || rivoniaCabinet)stations.push({kind:'station',siteIndex});
     for (const evse of site.evses) {
       for (const connector of evse.connectors) {

@@ -295,7 +295,8 @@
       tr('Code received. The station list is unavailable. Refresh to try again.','已读到编号，场站目录暂不可用。请刷新后重试。') :
       !choices ? tr('The station list has no published connectors. Refresh to try again.','当前目录没有可选枪口，请刷新后重试。') :
       kind==='ambiguous' ? tr('This code has multiple matches. Choose the connector shown on the charger.','此编号有多个匹配，请按充电桩上的枪号手选。') :
-      tr('Code read'+label+'. No matching connector. Choose your station and check the label on the charger.','已读到编号'+label+'，未匹配到枪口。请手选场站，再核对桩上的枪号。');
+      tr('Code read'+label+'. Connector unconfirmed. Scan the QR beside the connector label, or choose your station and connector below.',
+        '已读到编号'+label+'，枪口待核实。请扫标有枪号的二维码，或按桩身标识手动选枪。');
     return {scanFeedback:esc(message),scanChoices:'<div class="scan-recovery">'+(choices ||
       '<button type="button" class="rec-refresh" data-act="refresh-scan"'+(loading?' disabled':'')+'>'+
       tr(loading?'Updating…':'Refresh station list',loading?'正在刷新…':'刷新场站目录')+'</button>')+'</div>'};
