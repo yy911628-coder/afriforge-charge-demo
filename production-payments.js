@@ -1,6 +1,6 @@
 'use strict';
 
-function productionPayments({tr, esc, pair, render, getAccount, getGun, onStation}) {
+function productionPayments({tr, esc, pair, render, getAccount, getGun, onStation, sessionLocation}) {
   const passFormat = /^[A-Za-z0-9_-]{43}$/;
   const attemptFormat = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
   const referenceFormat = /^[a-f0-9]{16}$/;
@@ -14,7 +14,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
   const preview=stationExperience({tr,esc,render,getAccount,onLinked:id=>{fundingChoice='card';selectedCardId=id;}});
   let current = null, capability = null, receipt = null, busy = false, error = '', checkingAccess = false;
   let capabilityError = '', signedReturnIntent = null, returnEvidence = null;
-  const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid});
+  const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid,pilotRequest,sessionLocation});
 
   function save() {
     try {
@@ -172,9 +172,16 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
   function walletReady(gun){
     return usingCredit(gun)?eligibleCredit(gun).canFundCharge===true:getAccount().wallet()?.canFundCharge===true;
   }
+  function pilotRequest(gun){
+    if(!gun || preview.preview() || gun.standard!=='IEC_62196_T2_COMBO' ||
+       !['AVAILABLE','RESERVED'].includes(gun.status) || gun.vehicle_connection==='DISCONNECTED')return false;
+    if(current)return current.useTestCredit===true && current.funding==='wallet' && targetFields.every(k=>current.target?.[k]===gun[k]);
+    return fundingChoice==='wallet' && usingCredit(gun) && walletReady(gun);
+  }
   async function startFunded(gun,vehicleId,funding,cardId=null){
     const account=getAccount();
-    if(busy || current || !vehicleId || preview.preview() || (funding==='wallet'?!walletReady(gun):!account.wallet()?.cardDirectEnabled || !account.savedCards().some(card=>card.direct && card.id===cardId)) || !commands.permitsCheckout(gun) || !preview.usable(gun) || gun.vehicle_connection!=='CONNECTED' || gun.tariff?.status!=='verified')return;
+    if(busy || current || !vehicleId || preview.preview() || (funding==='wallet'?!walletReady(gun):!account.wallet()?.cardDirectEnabled || !account.savedCards().some(card=>card.direct && card.id===cardId)) || !commands.permitsCheckout(gun) ||
+       !(pilotRequest(gun) || (preview.usable(gun) && preview.connected(gun))) || gun.tariff?.status!=='verified')return;
     const target=Object.fromEntries(targetFields.map(k=>[k,gun[k]])),key='afe.intent.'+AFE_BASE_URL;
     const useTestCredit=funding==='wallet' && usingCredit(gun);
     const choice=JSON.stringify([funding,target,vehicleId,cardId,useTestCredit]);
@@ -265,7 +272,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     return picker+body;
   }
   function fundingReady(gun){
-    if(busy || starting || commands.isBusy() || !preview.usable(gun))return false;
+    if(busy || starting || commands.isBusy() || !(preview.usable(gun) || pilotRequest(gun)))return false;
     if(!fundingChoice)return false;
     if(preview.preview())return !preview.session() && fundingChoice==='card' && !!demoCard();
     if(!vehicle() || !commands.permitsCheckout(gun) || gun.tariff?.status!=='verified')return false;
@@ -273,7 +280,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     return fundingChoice==='wallet'?walletReady(gun):info?.cardDirectEnabled===true && !!realCard();
   }
   function readyToStart(gun){
-    if(!preview.connected(gun))return false;
+    if(!preview.connected(gun) && !pilotRequest(gun))return false;
     if(current)return !busy && !starting && !commands.isBusy() && !preview.preview() && !!commands.mayStart(gun);
     return fundingReady(gun);
   }
@@ -282,6 +289,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     if(preview.session()==='active')return '<span class="dock-hint" role="status">'+tr('Demo charging started','模拟充电已开始')+'</span><button type="button" class="station-primary" data-act="end-preview">'+tr('End demo','结束体验')+'</button>';
     let hint='';
     if(!gun)hint=tr('Select a connector','请选择充电枪');
+    else if(pilotRequest(gun))hint=tr('With the selected cable plugged in, tap start for the station to verify it.','请插好所选枪口，再点开始充电。桩端会核验本次请求。');
     else if(gun.status==='RESERVED')hint=tr('Start unavailable while the reservation is unverified','预约归属待确认，暂不能启动');
     else if(gun.status==='CHARGING')hint=tr('This connector has a session in progress','此枪正在充电');
     else if(!preview.usable(gun))hint=tr('This connector is unavailable','此枪当前不可启动');
@@ -290,9 +298,10 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     else if(!current && !fundingChoice)hint=tr('Choose a payment method','请选择支付方式');
     else if(!current && !preview.preview() && fundingChoice==='wallet' && !walletReady(gun))hint=tr('Choose sufficient wallet funds','请选择足额的可用余额或试充额度');
     else if(!current && fundingChoice==='card' && !(preview.preview()?demoCard():realCard()))hint=tr('Link or choose a card','请绑定或选择银行卡');
-    const checkFirst=recheck && !current && !preview.preview() && !preview.connected(gun);
+    const checkFirst=recheck && !current && !preview.preview() && !preview.connected(gun) && !pilotRequest(gun);
     if(checkFirst && fundingReady(gun))hint=tr('Checks the plug with the station before starting','启动前将向桩端复核连接');
-    return (hint?'<span class="dock-hint">'+hint+'</span>':'')+'<button class="station-primary" type="button" data-act="'+(checkFirst?'verify-then-start':'station-start')+'"'+((checkFirst?fundingReady(gun):readyToStart(gun))?'':' disabled')+'>'+
+    const problem=commands.failureText(error) || commands.lastProblem();
+    return (problem?'<span class="dock-hint charge-warning" role="alert">'+problem+'</span>':hint?'<span class="dock-hint">'+hint+'</span>':'')+'<button class="station-primary" type="button" data-act="'+(checkFirst?'verify-then-start':'station-start')+'"'+((checkFirst?fundingReady(gun):readyToStart(gun))?'':' disabled')+'>'+
       (preview.preview()?tr('Start demo charging','开始充电（模拟）'):tr('Start charging','开始充电'))+'</button>';
   }
   async function stationStart(gun){
@@ -321,6 +330,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     return labels[status];
   }
   function card(gun, stationView=false) {
+    if(!stationView && commands.hasStart())return commands.screen()+commands.sessionFooter();
     let content = '';
     if(['wallet','card'].includes(current?.funding)){
       const source=current.useTestCredit?tr('This internal session uses the station test credit.','本次内部试充使用本站运营额度。'):
@@ -339,7 +349,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
         '<button class="rec-refresh" type="button" data-act="close-payment"'+(busy||commands.isBusy()?' disabled':'')+'>'+
         tr('Close payment view','关闭本次支付视图')+'</button>';
     } else {content=fundingPicker(gun);}
-    if (error) content += '<p role="alert" class="rec-alert">'+tr('Check the payment or charging status','请核对付款或充电状态')+' · '+esc(error)+'</p>';
+    if (error) content += '<p role="alert" class="rec-alert">'+(commands.failureText(error) || esc(error))+'</p>';
     if (!current && getAccount().active()) content+='<button class="rec-refresh" type="button" data-page="orders">'+tr('My orders','我的订单')+'</button>';
     return '<section class="app-card rec-card"><h2>'+(current?.funding==='wallet'?tr('Wallet charging','钱包充电'):tr('Pay for charging','充电支付'))+'</h2>'+content+
       (current || !stationView ? commands.card(gun,stationView) : '')+'</section>';
@@ -396,10 +406,11 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     save();await checkStatus();
   }
   return {card,resume,submitForm,action,chooseCard,loadCapability,loadCommands:commands.load,checkStatus,finishReturn,
-    selectCredit(checked,gun){testCreditChoice=checked && eligibleCredit(gun)?getAccount().owner():'';render();},
+    selectCredit(checked,gun){testCreditChoice=checked && eligibleCredit(gun)?getAccount().owner():'';error='';render();},
     resetCredit(){testCreditChoice='';},
     fundingReady,selectionKey:()=>JSON.stringify([getAccount().owner(),vehicle(),fundingChoice,selectedCardId,testCreditChoice,current?.id]),
-    footer,preview,vehicle,chooseVehicle(id){selectedVehicle=id;render();},
+    pilotRequest,footer,preview,vehicle,sessionScreen:commands.screen,sessionFooter:commands.sessionFooter,hasDispatch:commands.hasStart,
+    chooseVehicle(id){selectedVehicle=id;render();},
     linked(id,vehicleId){fundingChoice='card';selectedCardId=id || null;selectedVehicle=vehicleId || '';},
     isStarting:()=>starting || preview.session()==='starting',
     hasOrder:() => current !== null, target:() => current?.target};

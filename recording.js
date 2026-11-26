@@ -34,7 +34,7 @@
     } catch {}
     return false;
   }
-  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account,getGun:()=>selectedGun(),onStation:()=>page==='station'});
+  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account,getGun:()=>selectedGun(),onStation:()=>page==='station',sessionLocation});
   const account=driverAccount({root,tr,esc,navigate,render,getPage:()=>page,getPayments:()=>payments,
     getChargeConnector:()=>page==='station' ? connectorKey : ''});
   const priorSession = hasPriorSession();
@@ -82,7 +82,7 @@
   }
   function canRecheck(gun) {
     return page === 'station' && scannedPlug?.waited && gun && keyForGun(gun) === scannedPlug.key &&
-      gun.status === 'AVAILABLE' && gun.vehicle_connection !== 'CONNECTED' && !payments.preview.preview() && !payments.hasOrder();
+      gun.status === 'AVAILABLE' && gun.vehicle_connection !== 'CONNECTED' && !payments.preview.preview() && !payments.hasOrder() && !payments.pilotRequest(gun);
   }
   function recheckPanel(gun) {
     if(scannedPlug?.pending && gun && keyForGun(gun)===scannedPlug.key)
@@ -227,6 +227,11 @@
     ['A','ZA41020001000001000100','ZA4102000100000100010001'],
     ['B','ZA41020001000001000101','ZA4102000100000100010101']
   ];
+  function sessionLocation(t) {
+    const site=locations.find(s=>s.id===t.location_id && s.country_code===t.country_code && s.party_id===t.party_id);
+    const gun=t.location_id===rivoniaSite.id && rivoniaGuns.find(([,uid,id])=>uid===t.evse_uid && id===t.connector_id);
+    return [site?.name || (gun?'382 Rivonia':''),gun && tr('Connector '+gun[0],gun[0]+' 枪')].filter(Boolean).join(' · ');
+  }
   function gunPicker(site, guns) {
     // Keep the physical left/right labels even if the CPO reorders or omits a connector.
     const knownSite = site.id === rivoniaSite.id && (keyFor(site) === keyFor(rivoniaSite) ||
@@ -247,7 +252,7 @@
       const value = gun && keyForGun(gun);
       const attrs = gun ? ' value="' + esc(value) + '"' + (value === connectorKey ? ' checked' : '') + (payments.preview.session()?' disabled':'') : ' disabled';
       const standard = gun?.standard === 'IEC_62196_T2_COMBO' ? 'CCS2' : gun?.standard;
-      const state = gun ? statusLabel(gun.status) : tr('Status unavailable','暂无状态');
+      const state = payments.pilotRequest(gun) && gun.status==='RESERVED' ? tr('Awaiting station check','试充待核验') : gun ? statusLabel(gun.status) : tr('Status unavailable','暂无状态');
       return '<label class="gun-option"><input type="radio" name="charge-connector"' + attrs + '>' +
         '<span class="gun-tile"><strong>' + label + '</strong><span class="gun-mark" aria-hidden="true"></span>' +
         (standard ? '<span class="gun-type">' + esc([standard,physicalLabel].filter(Boolean).join(' · ')) + '</span>' : '') +
@@ -272,6 +277,8 @@
       '<p class="rec-tariff-total"><strong>' + currency + esc(rate.total_per_kwh) + '</strong><span>/kWh</span></p></section>';
   }
   function stationDetail() {
+    const session=payments.sessionScreen();
+    if(session)return backButton()+session;
     const site = selectedSite();
     if (!site) return backButton() + '<p class="app-card" role="status">' +
       tr('Station details are temporarily unavailable.','暂时无法获取场站详情。') + '</p>';
@@ -282,7 +289,7 @@
     return backButton() + '<h1>' + esc(site.name || tr('Charging station','充电场站')) + '</h1><p class="app-muted">' +
       esc([site.address,site.city].filter(Boolean).join(', ')) + '</p>' + directions +
       '<section class="app-card rec-card station-connectors">' + gunPicker(site,guns) +
-      payments.preview.banner(gun,{loading,refreshed:!!gun && !catalogError && checkedGun===keyForGun(gun),recheck:!!canRecheck(gun)})+
+      payments.preview.banner(gun,{loading,refreshed:!!gun && !catalogError && checkedGun===keyForGun(gun),recheck:!!canRecheck(gun),pilot:payments.pilotRequest(gun)})+
       recheckPanel(gun)+(gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
   }
   function scanRecovery() {
@@ -336,7 +343,7 @@
     if (lastNav !== nav) { navRoot.innerHTML = nav; lastNav = nav; }
     const gun=selectedGun();
     const dock=document.getElementById('station-action');
-    const footer=page!=='station'?'':scannedPlug?.pending?
+    const footer=page!=='station'?'':payments.hasDispatch()?payments.sessionFooter():scannedPlug?.pending?
       '<button type="button" disabled class="station-primary">'+tr('Waiting for the charger…','等待充电桩确认…')+'</button>':
       payments.footer(gun,canRecheck(gun) && scannedPlug.reported && !scannedPlug.checking);
     if(lastFooter!==footer){dock.innerHTML=footer;lastFooter=footer;}

@@ -1,6 +1,6 @@
 'use strict';
 
-function productionCommands({tr, esc, pair, render, password, getOrder, getPayment, targetValid}) {
+function productionCommands({tr, esc, pair, render, password, getOrder, getPayment, targetValid, pilotRequest, sessionLocation}) {
   const fields = ['country_code','party_id','location_id','evse_uid','connector_id'];
   const same = (a,b) => targetValid(a) && targetValid(b) && fields.every(key => a[key]===b[key]);
   const isoTime = input => typeof input==='string' && Number.isFinite(Date.parse(input));
@@ -9,9 +9,9 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   const sessionStates = ['NOT_STARTED','NOT_CHECKED','MATCHED','NOT_FOUND','AMBIGUOUS','INVALID_RECORD','LOOKUP_UNAVAILABLE'];
   const ocpiStates = ['PENDING','ACTIVE','COMPLETED','INVALID','RESERVATION'];
   let capability = null, data = null, busy = false, checkingAccess = false;
-  let error = '', poll, uncertain = false, stopUnconfirmed = false;
+  let error = '', poll, socTimer, lastSession=null, sending='', queuedStop=null, uncertain = false, stopUnconfirmed = false;
   function clear() {
-    clearTimeout(poll);
+    clearTimeout(poll);clearTimeout(socTimer);lastSession=null;sending='';queuedStop=null;
     data = null; error = ''; uncertain = false; stopUnconfirmed = false;
   }
   function safeResult(value,order) {
@@ -28,23 +28,32 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   }
   function active() { return data?.session.state==='MATCHED' && data.session.status==='ACTIVE'; }
   function finished() { return data?.session.state==='MATCHED' && ['COMPLETED','INVALID'].includes(data.session.status); }
+  const finalBill=()=>data?.wallet?.settlement==='SETTLED' && Number.isSafeInteger(data.wallet.costCents);
+  const refused=c=>[c?.ack,c?.callback].some(v=>v && !['ACCEPTED','TIMEOUT'].includes(v));
+  function failureText(code) {
+    if(code==='TARGET_RESERVATION_UNVERIFIED')return tr('The station has not matched this reservation to your account. No start was sent.','桩端未提供与你账户匹配的预约，本次启动指令未发送。请让现场人员核对这把枪。');
+    if(code==='TARGET_RESERVATION_LOOKUP_UNAVAILABLE')return tr('Reservation details are unavailable. Try again.','暂时无法读取桩端预约，请重新查询。');
+    if(code==='TARGET_VEHICLE_NOT_CONNECTED')return tr('The station reports the cable is disconnected. Check the plug.','桩端上报尚未连接，请核对所选枪口并插紧。');
+    if(code==='TARGET_EVSE_NOT_AVAILABLE')return tr('The station reports this connector is busy or unavailable.','桩端上报此枪正在使用或暂不可用，请核对枪口。');
+    return '';
+  }
   function mayStart(gun) {
     const p=getPayment();
     return data?.canCommand && !uncertain && !data.start && data.session.state==='NOT_STARTED' &&
       permitsCheckout(data.target) && ((['wallet','card'].includes(getOrder()?.funding) && data.funding===getOrder().funding) ||
       (p?.status==='AUTHORIZED' && p.attemptId===data.attemptId && same(p.target,data.target))) &&
-      same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' && ['AVAILABLE','PREPARING'].includes(gun.status) && gun.vehicle_connection==='CONNECTED';
+      same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' &&
+      ((['AVAILABLE','PREPARING'].includes(gun.status) && gun.vehicle_connection==='CONNECTED') || pilotRequest(gun));
   }
   function pollSoon() {
     clearTimeout(poll);
     const waitingForBill=['wallet','card'].includes(data?.funding) && !['SETTLED','REJECTED','PAYMENT_REQUIRED'].includes(data.wallet?.settlement);
-    if (data?.start && (!finished() || waitingForBill) && !['REJECTED','NOT_SUPPORTED'].includes(data.start.ack) &&
-        !['REJECTED','FAILED'].includes(data.start.callback) && !document.hidden) {
+    if (data?.start && !finalBill() && (!finished() || waitingForBill) && !refused(data.start) && !document.hidden) {
       poll=setTimeout(() => {
         if (document.hidden) return;
         if (document.activeElement?.matches('input,select')) {pollSoon();return;}
         void query();
-      },finished()?30000:12000);
+      },finished()?15000:data.stop || !lastSession?4000:8000);
     }
   }
   async function load() {
@@ -74,18 +83,29 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         if (!value.canCommand) throw new ChargeApiError(403,'ORIGINAL_OPERATOR_PASS_REQUIRED');
         storeOriginal(pass,value);
       }
+      if (value.session.state==='MATCHED') lastSession=value.session;
+      if (value.stop?.ack==='ACCEPTED' || value.stop?.callback==='ACCEPTED') stopUnconfirmed=false;
       data=value; uncertain=false; pollSoon();window.dispatchEvent(new Event('afe-charge-update'));
       return value;
     } catch(e) {
-      if (getOrder()===order) { error=e instanceof ChargeApiError?e.code:'SESSION_STATUS_UNAVAILABLE'; uncertain=true; }
-    } finally {busy=false;render();}
+      if (getOrder()===order) { error=e instanceof ChargeApiError?e.code:'SESSION_STATUS_UNAVAILABLE'; uncertain=true;pollSoon(); }
+    } finally {
+      busy=false;
+      const stop=queuedStop;queuedStop=null;
+      if(stop===order && getOrder()===order && active() && !uncertain && !data.stop)void send('stop-charge');
+      render();
+    }
   }
   async function send(name,gun) {
     const order=getOrder();
-    if (!order || !data?.canCommand || busy || uncertain) return;
     const starting=name==='start-charge';
+    if (!order || !data?.canCommand || uncertain) return;
+    if(busy){
+      if(!starting && !sending && active() && !data.stop){queuedStop=order;render();}
+      return;
+    }
     if (starting ? !mayStart(gun) : !active() || !!data.stop) return;
-    clearTimeout(poll); busy=true; error=''; render();
+    clearTimeout(poll); busy=true; sending=name; error=''; render();
     try {
       const value=starting ? await AFEApi.startSession(order.pass,data.target,['wallet','card'].includes(order.funding)) : await AFEApi.stopSession(order.pass,data.target);
       if (getOrder()!==order) return;
@@ -94,11 +114,80 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
       data=value;
     } catch(e) {
       if (getOrder()===order) {
-        error=e instanceof ChargeApiError?e.code:'COMMAND_DELIVERY_UNKNOWN'; uncertain=true;
+        error=e instanceof ChargeApiError?e.code:'COMMAND_DELIVERY_UNKNOWN'; uncertain=!starting || !failureText(error);
         if (!starting) stopUnconfirmed=true;
       }
-    } finally {busy=false;render();}
+    } finally {busy=false;sending='';render();}
     if (getOrder()===order && !uncertain) void query();
+    else if(getOrder()===order)pollSoon();
+  }
+  function simulatedSoc() {
+    const begun=Date.parse(lastSession?.startedAt || data.start.requestedAt);
+    return Math.min(100,65+Math.floor(Math.max(0,Date.now()-begun)/10000));
+  }
+  function tickSoc(){
+    clearTimeout(socTimer);
+    if(document.hidden || !active() || finalBill() || Number.isFinite(lastSession?.soc) || !getOrder()?.useTestCredit)return;
+    const n=simulatedSoc();
+    document.querySelectorAll('[data-demo-soc]').forEach(el=>{el.textContent=n+'%';});
+    document.querySelectorAll('[data-demo-battery]').forEach(el=>{el.style.setProperty('--soc',n+'%');});
+    if(n<100)socTimer=setTimeout(tickSoc,10000-(Math.max(0,Date.now()-Date.parse(lastSession?.startedAt || data.start.requestedAt))%10000));
+  }
+  function screen() {
+    if(!data?.start)return '';
+    const w=data.wallet || {}, s=lastSession, done=finalBill() || s?.status==='COMPLETED' || s?.status==='INVALID';
+    const failed=refused(data.start) && !s, stopFailed=refused(data.stop) || stopUnconfirmed || data.stop?.callback==='TIMEOUT';
+    const stopWaiting=!done && !stopFailed && (queuedStop || sending==='stop-charge' || !!data.stop);
+    const showLive=!done && s?.status==='ACTIVE';
+    const heading=done ? tr('Charging bill','充电账单') : failed ? tr('Charging could not start','充电未启动') :
+      stopWaiting ? tr('Stopping charging','正在停止充电') : showLive && (uncertain || !active()) ? tr('Checking charging status','正在核实充电状态') :
+      showLive ? tr('Charging','充电中') : tr('Waiting for the charger','等待充电桩启动');
+    const amount=c=>'R'+(c/100).toFixed(2);
+    const energy=Number.isFinite(w.energyKwh) && w.energyKwh>=0 ? w.energyKwh : s?.kwh;
+    const terminalCost=Number.isSafeInteger(w.costCents) && w.costCents>=0;
+    let body='',message='';
+    if(done) {
+      message=finalBill() ? (getOrder()?.useTestCredit ? tr('Settled using station test credit.','已使用本站试充额度结算。') : tr('Payment settled.','本单已结算。')) :
+        w.settlement==='PAYMENT_REQUIRED'?tr('Payment is outstanding.','本单待付款。'):
+        s?.status==='INVALID'?tr('The station marked this session invalid. Contact the operator.','桩端将本次会话标为无效，请联系现场运营人员核对。'):
+        tr('Charging ended. Waiting for the final bill.','充电已结束，正在等待桩端最终账单。');
+    } else if(stopFailed && showLive)message=tr('Stop is unconfirmed. Check the charger and use its Stop control if charging continues.','停止结果尚未确认。若桩屏仍在充电，请在桩屏停止本次会话。');
+    else if(stopWaiting)message=tr('Waiting for the station to confirm the end of this session.','正在等待桩端确认本次充电已结束。');
+    else if(failed)message=tr('The station declined the start. Check the selected connector.','桩端拒绝启动，请核对枪口及现场状态。');
+    else if(!showLive)message=tr('Start requested. Waiting for your active session.','已提交启动请求，正在等待你的充电会话。');
+    if(showLive && !done) {
+      const measured=Number.isFinite(s.soc) && s.soc>=0 && s.soc<=100;
+      const demo=!measured && getOrder()?.useTestCredit===true;
+      const pct=measured ? Math.round(s.soc) : demo ? simulatedSoc() : null;
+      body='<div class="session-soc"><div class="session-battery" aria-hidden="true"><i '+(demo?'data-demo-battery ':'')+'style="--soc:'+(pct??0)+'%"></i></div><div><span>'+
+        (demo?tr('Battery · demo SOC','车辆电量 · 模拟 SOC'):tr('Vehicle battery','车辆电量'))+'</span><strong '+(demo?'data-demo-soc':'')+'>'+
+        (pct===null?tr('Not reported','暂未上报'):pct+'%')+'</strong></div></div>';
+      if(demo)tickSoc();
+    }
+    if(showLive || done) {
+      const metric=(label,value,unit='')=>'<div><span>'+label+'</span><strong>'+value+(unit?'<small>'+unit+'</small>':'')+'</strong></div>';
+      body+='<div class="session-meters">'+metric(tr('Energy delivered','已充电量'),Number.isFinite(energy)?esc(String(Number(energy.toFixed(3)))):'—','kWh')+
+        metric(terminalCost ? tr('Final cost','最终费用') : tr('Estimated cost','预估费用'),terminalCost ? amount(w.costCents) :
+        Number.isSafeInteger(w.estimatedCents)?amount(w.estimatedCents):'—')+'</div>';
+    }
+    if(w.shortfallCents>0)body+='<p>'+tr('Outstanding balance','本单待补金额')+' '+amount(w.shortfallCents)+'</p>';
+    if(w.operatorReviewCents>0)body+='<p>'+tr('Pending operator review','待运营核对差额')+' '+amount(w.operatorReviewCents)+'</p>';
+    if(w.lowBalanceStop && !done)message=tr('The wallet is running low. AFE has requested a stop.','钱包余额接近用尽，AFE 已申请停充。');
+    if((uncertain || (s && data.session.state!=='MATCHED' && !stopWaiting)) && !done)message+=' '+tr('Updating station readings.','正在核实最新桩端读数。');
+    const progress=(!showLive && !done && !failed) || stopWaiting;
+    const place=sessionLocation(data.target);
+    return '<section class="app-card rec-card session-view" aria-label="'+heading+'"><h1>'+heading+'</h1>'+
+      (place?'<p class="session-place">'+esc(place)+'</p>':'')+body+
+      (message?'<p class="session-message" role="status">'+(progress?'<i class="session-spinner" aria-hidden="true"></i>':'')+message+'</p>':'')+
+      (done || failed?'<button type="button" class="rec-refresh" data-act="close-payment">'+tr('Close','关闭')+'</button>':'')+
+      (!finalBill() && !failed?button('session-status',tr('Refresh charging status','更新充电状态')):'')+
+      (!data.canCommand && !done && !failed?'<button class="rec-refresh" type="button" data-account="order" data-id="'+esc(getOrder().id)+'">'+tr('Resume charge controls','恢复本次充电操作')+'</button>':'')+'</section>';
+  }
+  function sessionFooter() {
+    if(!data?.start || finalBill() || lastSession?.status!=='ACTIVE' || !data.canCommand)return '';
+    const stopping=queuedStop || sending==='stop-charge' || data.stop;
+    return '<button type="button" class="station-primary session-stop" data-act="stop-charge"'+(stopping || uncertain || !active()?' disabled':'')+'>'+
+      (stopping ? tr('Stop requested','已申请停止充电') : tr('Stop charging','停止充电'))+'</button>';
   }
   function button(action,label) {
     return '<button class="rec-refresh" type="button" data-act="'+action+'"'+(busy?' disabled':'')+'>'+label+'</button>';
@@ -146,7 +235,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         body+=button('stop-charge',tr('Stop charging','停止充电'));
       }
     }
-    if (error) body+='<p role="alert">'+tr('Check the CPO session status','请核对 CPO 会话状态')+' · '+esc(error)+'</p>';
+    if (error) body+='<p role="alert">'+(failureText(error) || esc(error))+'</p>';
     if (AFE_BASE_URL) body+=button('session-status',tr('Check charging status','查询充电状态'));
     if (!permitsCheckout(gun) && !data?.start) body+='<p>'+readiness+'</p>';
     return '<section class="rec-card"><h3>'+tr('Remote charging','远程充电')+'</h3>'+body+'</section>';
@@ -154,5 +243,5 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   document.addEventListener('visibilitychange',()=>{if (!document.hidden && getOrder() && data?.start) void query();});
   function listed(gun) { return capability?.targets.some(t=>same(t,gun))===true; }
   function permitsCheckout(gun) { return capability?.enabled===true && listed(gun); }
-  return {load,query,send,card,clear,permitsCheckout,mayStart,isBusy:()=>busy,hasStart:()=>!!data?.start};
+  return {load,query,send,card,screen,sessionFooter,failureText,lastProblem:()=>failureText(error),clear,permitsCheckout,mayStart,isBusy:()=>busy,hasStart:()=>!!data?.start};
 }

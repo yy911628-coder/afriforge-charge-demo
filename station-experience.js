@@ -13,18 +13,21 @@ function stationExperience({tr,esc,render,getAccount,onLinked}) {
   }
   function connected(gun) {return !!gun && (preview ? plugged===key(gun) : gun.vehicle_connection==='CONNECTED');}
   function usable(gun) {return !!gun && gun.standard==='IEC_62196_T2_COMBO' && ['AVAILABLE','PREPARING'].includes(gun.status);}
-  function banner(gun,{loading=false,refreshed=false,recheck=false}={}) {
+  function banner(gun,{loading=false,refreshed=false,recheck=false,pilot=false}={}) {
     if(!gun)return '';
     const ok=connected(gun), busy=!usable(gun);
     const reserved=gun.status==='RESERVED', inUse=gun.status==='CHARGING';
-    const message=reserved ? tr('Station reports a reservation','桩端上报此枪已预约') :
+    const message=pilot && reserved ? tr('Ready for a test start request','试充准备就绪，等待桩端核验') :
+      pilot && !ok ? tr('Ready for a test start request','已可申请试充') :
+      reserved ? tr('Station reports a reservation','桩端上报此枪已预约') :
       inUse ? tr('This connector is charging','此枪正在充电') :
       busy ? tr('Connector unavailable','此枪暂不可用') :
       ok ? tr('✓ Vehicle connected','✓ 已连接车辆') :
       gun.vehicle_connection==='DISCONNECTED' || preview ? tr('Connect the charging cable','请连接充电枪') :
       tr('Waiting for plug confirmation','等待桩端确认插枪');
     let detail='';
-    if(reserved)detail=tr('We could not confirm a reservation for your account. You can refresh this connector or choose another available one.',
+    if(pilot)detail=tr('Plug the selected cable into your vehicle and press Start.','请把所选充电枪插入你的车辆，再点「开始充电」。');
+    else if(reserved)detail=tr('We could not confirm a reservation for your account. You can refresh this connector or choose another available one.',
       '尚未确认这笔预约属于你的账户。可刷新此枪状态，或选择现场空闲的另一把枪。');
     else if(inUse)detail=tr('If you started this session in AFE, open Orders to check it.','如果是你通过 AFE 启动的充电，可到「订单」查看。');
     else if(gun.status==='UNKNOWN')detail=tr('The station has not confirmed this connector’s status.','暂未取得桩端状态，可重新查询。');
@@ -35,7 +38,7 @@ function stationExperience({tr,esc,render,getAccount,onLinked}) {
       (preview ? '<small>'+tr('Charging preview','充电体验')+'</small>'+
         (!busy && !session?'<button type="button" data-act="toggle-plug">'+(ok?tr('Simulate unplugging','模拟拔枪'):tr('Simulate plugging in','模拟插枪'))+'</button>':'') :
         (detail?'<small>'+detail+'</small>':'')+
-        ((busy || !ok) && !recheck ? '<button type="button" data-act="refresh-gun"'+(loading?' disabled':'')+'>'+
+        ((busy || !ok) && !recheck && !pilot ? '<button type="button" data-act="refresh-gun"'+(loading?' disabled':'')+'>'+
           tr(loading?'Checking…':'Refresh connector status',loading?'正在查询…':'刷新枪口状态')+'</button>' : ''))+'</div>';
   }
   function closeSheet(){if(sheet?.open)sheet.close();}
