@@ -115,6 +115,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     const amount=money(n.costCents || 0).replace(/^R\s*/,'');
     switch(n.kind){
       case 'STARTED':return tr('[AFE Charge] Your vehicle has started charging.','【AFE Charge】您的车辆已开始充电。');
+      case 'TEST_CREDIT_SETTLED':return tr('Internal charging test completed. Test credit used: ','内部试充结束，本次使用运营额度 ')+money(n.fundedCents)+(n.operatorReviewCents?' · '+tr('AFE to reconcile','AFE 待核对差额')+' '+money(n.operatorReviewCents):'');
       case 'CARD_PAID':return tr('[AFE Charge] Charging ended. Your card ending '+n.last4+' was charged R '+amount+'.','【AFE Charge】充电结束，已从您尾号 '+n.last4+' 的银行卡扣款 R '+amount+'。');
       case 'WALLET_SETTLED':return n.shortfallCents?tr('[AFE Charge] Charging ended. Wallet payment applied. Outstanding: '+money(n.shortfallCents)+'.','【AFE Charge】充电结束，钱包已抵扣，剩余待补 '+money(n.shortfallCents)+'。'):
         tr('[AFE Charge] Charging ended. Your wallet was charged R '+amount+'.','【AFE Charge】充电结束，已从钱包扣款 R '+amount+'。');
@@ -169,6 +170,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       action('reload-wallet',tr('Retry loading balance','重新读取余额')):'<p>'+tr('Loading balance…','正在读取余额…')+'</p>'));
     const pending=wallet.pendingTopup;
     let main='<h2>'+tr('Available balance','可用余额')+'</h2><p class="wallet-balance">'+money(wallet.balanceCents)+'</p>';
+    if(wallet.testCredit)main+='<h3>'+tr('Internal test credit','内部试充额度')+'</h3><p><strong>'+money(wallet.testCredit.remainingCents)+'</strong> · '+esc(wallet.testCredit.stationName)+'</p>';
     if(wallet.dueCents)main+='<p class="rec-alert">'+tr('Outstanding charging cost','待补充电费')+' · '+money(wallet.dueCents)+'</p>';
     main+='<p>'+tr('To start charging, your balance must be above ','启动充电时，钱包余额须大于 ')+money(wallet.minimumCents)+tr('.','。')+'</p>';
     if(pending){
@@ -177,10 +179,18 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     }else if(wallet.topupEnabled)main+=form('topup',field('amount',tr('Top-up amount (ZAR)','充值金额（兰特）'),'number','min="0.01" max="99999999.99" step="0.01" inputmode="decimal" required'),tr('Top up with Peach','使用 Peach 充值'));
     else main+='<p>'+tr('Top-ups will open when Peach activates live payments.','Peach 正式支付开通后即可充值。')+'</p>';
     main+=action('reload-wallet',tr('Refresh balance','刷新余额'));
-    const rows=wallet.entries.map(item=>'<article class="acct-item"><strong>'+tr(...(item.kind==='TOPUP'?['Top-up','钱包充值']:['Charging','充电消费']))+
+    const rows=wallet.entries.map(item=>{
+      if(item.kind==='TEST_CREDIT' || item.kind==='TEST_CREDIT_CHARGE'){
+        const issued=item.kind==='TEST_CREDIT';
+        return '<article class="acct-item"><strong>'+tr(issued?'Test credit issued':'Test credit used',issued?'试充额度入账':'试充额度使用')+
+          ' · '+(issued?'+':'−')+money(Math.abs(item.creditDeltaCents))+'</strong><p>'+esc(item.note)+' · '+esc(new Date(item.createdAt).toLocaleString())+
+          (item.operatorReviewCents?' · '+tr('AFE to reconcile','AFE 待核对差额')+' '+money(item.operatorReviewCents):'')+'</p></article>';
+      }
+      return '<article class="acct-item"><strong>'+tr(...(item.kind==='TOPUP'?['Top-up','钱包充值']:['Charging','充电消费']))+
       ' · '+(item.deltaCents>=0?'+':'−')+money(Math.abs(item.deltaCents))+'</strong><p>'+esc(new Date(item.createdAt).toLocaleString())+
       (item.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(item.shortfallCents):'')+
-      (item.repaidCents?' · '+tr('Applied to outstanding cost','已抵扣欠费')+' '+money(item.repaidCents):'')+'</p></article>').join('');
+      (item.repaidCents?' · '+tr('Applied to outstanding cost','已抵扣欠费')+' '+money(item.repaidCents):'')+'</p></article>';
+    }).join('');
     return card(main)+card('<h2>'+tr('Wallet activity','钱包流水')+'</h2>'+(rows || '<p>'+tr('No transactions yet.','暂无交易记录。')+'</p>'));
   }
   function cardBinding() {
@@ -374,7 +384,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     if(page==='orders')return title(tr('Orders','订单'))+(getPayments().hasOrder()?getPayments().card(null):'')+card(
       (ordersState==='loading'?'<p>'+tr('Loading orders…','正在读取订单…')+'</p>':ordersState==='error'?action('reload-orders',tr('Retry loading orders','重新加载订单')):
       orders.length?orders.map(o=>'<article class="acct-item"><h2>'+esc(o.target.location_id)+' · '+esc(o.target.connector_id)+'</h2><p>'+
-      esc(new Date(o.createdAt).toLocaleString())+' · '+(['card','wallet'].includes(o.funding)?(o.funding==='card'?tr('Bank card','银行卡')+(o.last4?' ···· '+esc(o.last4):''):tr('Wallet','钱包'))+' · '+(Number.isSafeInteger(o.costCents)?money(o.costCents):o.settlement==='REJECTED'?tr('Start declined','启动被拒'):o.settlement==='NOT_STARTED'?tr('Awaiting start','待启动'):tr('Awaiting final bill','待结算'))+(o.funding==='card' && o.settlement==='SETTLED'?' · '+tr('Paid','已扣款'):o.settlement==='PAYMENT_REQUIRED'?' · '+tr('Payment due','待支付'):o.settlement==='PAYMENT_PENDING'?' · '+tr('Payment pending','扣款待确认'):'')+(o.lowBalanceStop?' · '+tr('Low-balance stop requested','已请求低余额停充'):'')+(o.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(o.shortfallCents):''):'ZAR '+esc(o.amount))+'</p>'+action('order',tr('View order','查看订单'),o.id)+'</article>').join(''):
+      esc(new Date(o.createdAt).toLocaleString())+' · '+(['card','wallet'].includes(o.funding)?(o.funding==='card'?tr('Bank card','银行卡')+(o.last4?' ···· '+esc(o.last4):''):o.useTestCredit?tr('Station test credit','本站试充额度'):tr('Wallet','钱包'))+' · '+(Number.isSafeInteger(o.costCents)?money(o.costCents):o.settlement==='REJECTED'?tr('Start declined','启动被拒'):o.settlement==='NOT_STARTED'?tr('Awaiting start','待启动'):tr('Awaiting final bill','待结算'))+(o.funding==='card' && o.settlement==='SETTLED'?' · '+tr('Paid','已扣款'):o.settlement==='PAYMENT_REQUIRED'?' · '+tr('Payment due','待支付'):o.settlement==='PAYMENT_PENDING'?' · '+tr('Payment pending','扣款待确认'):'')+(o.lowBalanceStop?' · '+tr('Low-balance stop requested','已请求低余额停充'):'')+(o.operatorReviewCents?' · '+tr('AFE to reconcile','AFE 待核对差额')+' '+money(o.operatorReviewCents):'')+(o.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(o.shortfallCents):''):'ZAR '+esc(o.amount))+'</p>'+action('order',tr('View order','查看订单'),o.id)+'</article>').join(''):
       '<p>'+tr('Your charging orders will appear here.','你的充电订单会显示在这里。')+'</p>')+feedback());
     return '';
   }

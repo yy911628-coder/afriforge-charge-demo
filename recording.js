@@ -10,6 +10,7 @@
   let locations = [], sourceTime = '', stationKey = '', connectorKey = '';
   let loading = false, catalogError = '', manuallySelected = false;
   let pendingScan = null;
+  let scannedPlug = null, plugTimer, catalogRequest;
   const tr = (en, zh) => chinese ? zh : en;
 
   // Old payment returns and stored attempts belong to their original environment.
@@ -58,6 +59,77 @@
   }
   const keyForGun = (gun) => JSON.stringify(idFields.map(k=>gun[k]));
   const selectedGun = () => connectors(selectedSite()).find(g=>keyForGun(g)===connectorKey);
+  function forgetScan() {
+    clearTimeout(plugTimer);
+    scannedPlug = null;
+  }
+  function rememberScan(gun) {
+    forgetScan();
+    const scan = {key:keyForGun(gun), waited:false, reported:false, checking:false, pending:null, note:''};
+    scannedPlug = scan;
+    plugTimer = setTimeout(() => {
+      if (scannedPlug !== scan || page !== 'station') return;
+      scan.waited = true;
+      render();
+      if (!document.hidden) void refreshSites();
+    },5000);
+  }
+  function canRecheck(gun) {
+    return page === 'station' && scannedPlug?.waited && gun && keyForGun(gun) === scannedPlug.key &&
+      gun.status === 'AVAILABLE' && gun.vehicle_connection !== 'CONNECTED' && !payments.preview.preview() && !payments.hasOrder();
+  }
+  function recheckPanel(gun) {
+    if(scannedPlug?.pending && gun && keyForGun(gun)===scannedPlug.key)
+      return '<div class="plug-recheck" role="status"><p>'+tr('Waiting up to 30 seconds for the station to confirm. Keep this page open.','正在等桩端确认，最多 30 秒。请保持此页打开。')+
+        '</p><button type="button" class="rec-refresh" data-act="cancel-plug-check">'+tr('Cancel start request','取消本次启动')+'</button></div>';
+    if (!canRecheck(gun)) return '';
+    const scan=scannedPlug;
+    return '<div class="plug-recheck"><button type="button" class="rec-refresh" data-act="recheck-plug"'+(scan.checking?' disabled':'')+'>'+
+      tr('I have plugged in · check again','我已插枪，重新检测')+'</button><p role="status">'+
+      (scan.checking ? tr('Checking this connector…','正在查询这把枪…') : scan.note==='expired' ?
+        tr('No plug confirmation arrived within 30 seconds. Check the connector and try again.','30 秒内未收到插枪确认。请核对枪口后重试。') : scan.note==='waiting' ?
+        tr('The station has not confirmed the connection yet. Check the connector and try again.','桩端尚未确认连接。请核对枪口，然后重试。') :
+        tr('Still waiting for the station to report a connection.','正在等待桩端上报连接状态。'))+'</p></div>';
+  }
+  async function recheckPlug(startRequested) {
+    const gun=selectedGun(), scan=scannedPlug;
+    if (document.hidden || !canRecheck(gun) || scan.checking || (startRequested && (!scan.reported || !payments.fundingReady(gun)))) return;
+    const selection=payments.selectionKey(),deadline=Date.now()+30000;
+    const request=startRequested ? {} : null;
+    const stillHere=()=>scannedPlug===scan && scan.pending===request && page==='station' && !document.hidden &&
+      (!request || (payments.selectionKey()===selection && !payments.preview.preview()));
+    scan.pending=request;
+    scan.reported=true; scan.checking=true; render();
+    const expiry=request && setTimeout(()=>{
+      if(scannedPlug===scan && scan.pending===request){
+        scan.pending=null;scan.checking=false;scan.note='expired';render();
+      }
+    },30000);
+    try {
+      if (catalogRequest) await catalogRequest;
+      while(stillHere() && (!request || Date.now()<deadline)){
+        await refreshSites();
+        const fresh=selectedGun();
+        if (!stillHere() || !fresh || keyForGun(fresh)!==scan.key || !['AVAILABLE','PREPARING'].includes(fresh.status)) return;
+        if (!request){scan.note='waiting';return;}
+        if (fresh.vehicle_connection==='CONNECTED'){
+          if(Date.now()<deadline && payments.fundingReady(fresh)) payments.action('station-start',fresh);
+          return;
+        }
+        if(fresh.vehicle_connection==='DISCONNECTED'){scan.note='waiting';return;}
+        await new Promise(done=>setTimeout(done,Math.max(0,Math.min(2000,deadline-Date.now()))));
+      }
+      if(stillHere())scan.note='expired';
+    } finally {
+      if(expiry)clearTimeout(expiry);
+      if(scan.pending===request){scan.pending=null;scan.checking=false;}
+      render();
+    }
+  }
+  function cancelPlugStart() {
+    if(!scannedPlug?.pending)return;
+    scannedPlug.pending=null;scannedPlug.checking=false;scannedPlug.note='';render();
+  }
   function chooseSite(site) {
     stationKey = site ? keyFor(site) : '';
     const guns = connectors(site);
@@ -74,8 +146,12 @@
     return gun;
   }
 
-  async function refreshSites() {
-    if (loading || !AFE_BASE_URL) return;
+  function refreshSites() {
+    if (!AFE_BASE_URL) return Promise.resolve();
+    if (!catalogRequest) catalogRequest=updateSites().finally(()=>{catalogRequest=null;});
+    return catalogRequest;
+  }
+  async function updateSites() {
     loading = true; render();
     try {
       const data = await AFEApi.stations();
@@ -107,7 +183,7 @@
       render();
       const scan = pendingScan;
       pendingScan = null;
-      if (scan?.feedback.isConnected) showCode(scan.raw, scan.feedback);
+      if (scan?.feedback.isConnected) showCode(scan.raw, scan.feedback, scan.fromCamera);
     }
   }
   function statusLabel(raw) {
@@ -192,7 +268,7 @@
     return backButton() + '<h1>' + esc(site.name || tr('Charging station','充电场站')) + '</h1><p class="app-muted">' +
       esc([site.address,site.city].filter(Boolean).join(', ')) + '</p>' + directions +
       '<section class="app-card rec-card station-connectors">' + gunPicker(site,guns) +
-      payments.preview.banner(gun)+(gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
+      payments.preview.banner(gun)+recheckPanel(gun)+(gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
   }
   function browse() {
     if (page === 'home') return driverHome({tr,esc,locations,site:selectedSite(),loading,catalogError,configured:!!AFE_BASE_URL,sourceTime});
@@ -226,7 +302,11 @@
     }
     const nav = driverNav(tr,account.handles(page) && !['wallet','orders'].includes(page)?'profile':page);
     if (lastNav !== nav) { navRoot.innerHTML = nav; lastNav = nav; }
-    const dock=document.getElementById('station-action'),footer=page==='station'?payments.footer(selectedGun()):'';
+    const gun=selectedGun();
+    const dock=document.getElementById('station-action');
+    const footer=page!=='station'?'':scannedPlug?.pending?
+      '<button type="button" disabled class="station-primary">'+tr('Waiting for the charger…','等待充电桩确认…')+'</button>':
+      payments.footer(gun,canRecheck(gun) && scannedPlug.reported && !scannedPlug.checking);
     if(lastFooter!==footer){dock.innerHTML=footer;lastFooter=footer;}
     dock.hidden=!footer;
     const overlay=document.getElementById('charge-progress');
@@ -239,17 +319,17 @@
     next=account.target(next);
     if (next !== page && push) history.pushState({afeView:next,stationKey,connectorKey},'');
     const changed=page!==next;
-    if(changed && page==='station')payments.preview.leave();
+    if(changed && page==='station'){forgetScan();payments.resetCredit();payments.preview.leave();}
     page = next;
     if(changed) account.enter(next);
     render();
     if(changed && next==='station' && (!sourceTime || Date.now()-Date.parse(sourceTime)>8000))void refreshSites();
   }
-  function showCode(raw, feedback = root.querySelector('[data-scan-message]')) {
+  function showCode(raw, feedback = root.querySelector('[data-scan-message]'), fromCamera=false) {
     if (!feedback) return;
     pendingScan = null;
     if (loading && !sourceTime) {
-      pendingScan = {raw, feedback};
+      pendingScan = {raw, feedback, fromCamera};
       feedback.textContent = tr('Code received. Looking up the connector…','已读到编号，正在查询枪口…');
       return;
     }
@@ -260,6 +340,7 @@
       const gun = connectors(site).find(g => g.evse_uid === match.evseUid && g.connector_id === match.connectorId);
       if (gun) {
         manuallySelected = true; chooseSite(site); connectorKey = keyForGun(gun);
+        if (fromCamera) rememberScan(gun); else forgetScan();
         return navigate('station');
       }
     }
@@ -282,11 +363,14 @@
     render();
   }
   root.addEventListener('change', event => {
+    if(page==='station' && event.target.matches('[data-station-vehicle],[data-station-credit],[data-charge-card],input[name="charge-connector"]'))cancelPlugStart();
+    if(event.target.matches('[data-station-credit]')){payments.selectCredit(event.target.checked,selectedGun());return;}
     if(event.target.matches('[data-station-vehicle]')){payments.chooseVehicle(event.target.value);return;}
     if (event.target.matches('select[data-charge-card]')) { payments.chooseCard(event.target.value); return; }
     if (page !== 'station' || !event.target.matches('input[name="charge-connector"]:checked')) return;
     const gun = connectors(selectedSite()).find(g => keyForGun(g) === event.target.value);
     if (gun) {
+      forgetScan();
       manuallySelected = true; connectorKey = keyForGun(gun);
       history.replaceState({afeView:page,stationKey,connectorKey},'');
       render();
@@ -318,15 +402,20 @@
       case 'scan-camera':
         pendingScan = null;
         root.querySelector('[data-scan-message]').textContent = '';
-        return void driverScanCamera({root,tr,onCode:showCode});
+        return void driverScanCamera({root,tr,onCode:(raw,feedback)=>showCode(raw,feedback,true)});
+      case 'recheck-plug': return void recheckPlug(false);
+      case 'cancel-plug-check': return cancelPlugStart();
       case 'stop-camera': return driverStopCamera();
       case 'refresh':
         void refreshSites(); void payments.loadCapability(); void payments.loadCommands(); return;
-      default: payments.action(control.dataset.act,selectedGun());
+      default: cancelPlugStart();payments.action(control.dataset.act,selectedGun());
     }
   });
   document.getElementById('station-action').addEventListener('click',e=>{
-    const b=e.target.closest('button[data-act]');if(b && !b.disabled && page==='station')payments.action(b.dataset.act,selectedGun());
+    const b=e.target.closest('button[data-act]');
+    if(!b || b.disabled || page!=='station')return;
+    if(b.dataset.act==='verify-then-start')void recheckPlug(true);
+    else payments.action(b.dataset.act,selectedGun());
   });
   navRoot.addEventListener('click', event => {
     const tab = event.target.closest('button[data-page]');
@@ -365,5 +454,5 @@
     if(page==='station' || (page==='home' && (!sourceTime || Date.now()-Date.parse(sourceTime)>=30000)))void refreshSites();
   }
   setInterval(pollCatalog,8000);
-  document.addEventListener('visibilitychange',pollCatalog);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelPlugStart();else pollCatalog();});
 })();
