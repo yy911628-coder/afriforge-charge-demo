@@ -1,6 +1,6 @@
 'use strict';
 
-function productionCommands({tr, esc, pair, render, password, getOrder, getPayment, targetValid, acceptsStationStatus, sessionLocation}) {
+function productionCommands({tr, esc, pair, render, password, getOrder, getPayment, targetValid, acceptsStationStatus, sessionLocation, gunName}) {
   const fields = ['country_code','party_id','location_id','evse_uid','connector_id'];
   const same = (a,b) => targetValid(a) && targetValid(b) && fields.every(key => a[key]===b[key]);
   const isoTime = input => typeof input==='string' && Number.isFinite(Date.parse(input));
@@ -9,9 +9,9 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   const sessionStates = ['NOT_STARTED','NOT_CHECKED','MATCHED','NOT_FOUND','AMBIGUOUS','INVALID_RECORD','LOOKUP_UNAVAILABLE'];
   const ocpiStates = ['PENDING','ACTIVE','COMPLETED','INVALID','RESERVATION'];
   let capability = null, data = null, busy = false, checkingAccess = false;
-  let error = '', poll, socTimer, lastSession=null, sending='', queuedStop=null, uncertain = false, stopUnconfirmed = false;
+  let error = '', poll, socTimer, durationTimer, lastSession=null, sending='', queuedStop=null, uncertain = false, stopUnconfirmed = false;
   function clear() {
-    clearTimeout(poll);clearTimeout(socTimer);lastSession=null;sending='';queuedStop=null;
+    clearTimeout(poll);clearTimeout(socTimer);clearTimeout(durationTimer);lastSession=null;sending='';queuedStop=null;
     data = null; error = ''; uncertain = false; stopUnconfirmed = false;
   }
   function safeResult(value,order) {
@@ -32,6 +32,8 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   const closedStart=()=>data?.wallet?.settlement==='CLOSED_UNCONFIRMED' && !active();
   const declined=result=>!!result && result!=='ACCEPTED' && result!=='TIMEOUT';
   const refused=c=>declined(c?.ack) || declined(c?.callback);
+  const isClosed=()=>!!data && (finalBill() || closedStart() || data.wallet?.settlement==='REJECTED' ||
+    (refused(data.start) && !active() && !finished()));
   function failureText(code) {
     if(code==='TARGET_RESERVATION_UNVERIFIED')return tr('AFE could not confirm your access to this connector. No start was sent. Ask the site operator to check it.','AFE 尚未确认你的账户可使用这把枪。此次启动指令未发送，请联系场站核对。');
     if(code==='TARGET_RESERVATION_LOOKUP_UNAVAILABLE')return tr('Reservation details are unavailable. Try again.','暂时无法读取桩端预约，请重新查询。');
@@ -135,70 +137,94 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     document.querySelectorAll('[data-demo-battery]').forEach(el=>{el.style.setProperty('--soc',n+'%');});
     if(n<100)socTimer=setTimeout(tickSoc,10000-(Math.max(0,Date.now()-Date.parse(lastSession?.startedAt || data.start.requestedAt))%10000));
   }
+  function durationText(began) {
+    if(!isoTime(began))return '—';
+    const sec=Math.max(0,Math.floor((Date.now()-Date.parse(began))/1000));
+    return [Math.floor(sec/3600),Math.floor(sec/60)%60,sec%60].map(n=>String(n).padStart(2,'0')).join(':');
+  }
+  function tickDuration(){
+    clearTimeout(durationTimer);
+    if(document.hidden || !active() || finalBill())return;
+    durationTimer=setTimeout(()=>{
+      const nodes=document.querySelectorAll('[data-charge-duration]');
+      if(!nodes.length)return;
+      for(const el of nodes)el.textContent=durationText(lastSession?.startedAt);
+      tickDuration();
+    },1000);
+  }
   function screen() {
     if(!data?.start)return '';
-    if(closedStart())return '<section class="app-card rec-card session-view"><h1>'+tr('Order closed','订单已关闭')+'</h1><p>'+esc(sessionLocation(data.target))+'</p><p class="session-message" role="status">'+
-      tr('The start timed out. AFE closed this order without a debit.','启动超时，AFE 已关闭本单，本次未扣款。')+'</p><button type="button" class="rec-refresh" data-act="close-payment">'+tr('Done','完成')+'</button></section>';
-    const w=data.wallet || {}, s=lastSession, done=finalBill() || s?.status==='COMPLETED' || s?.status==='INVALID';
-    const failed=refused(data.start) && !done && s?.status!=='ACTIVE', stopFailed=refused(data.stop) || stopUnconfirmed || data.stop?.callback==='TIMEOUT';
-    const stopWaiting=!done && !stopFailed && (queuedStop || sending==='stop-charge' || !!data.stop);
-    const showLive=!done && s?.status==='ACTIVE';
-    const heading=done ? tr('Charging bill','充电账单') : failed ? tr('Charging could not start','充电未启动') :
-      stopWaiting ? tr('Stopping charging','正在停止充电') : showLive && (uncertain || !active()) ? tr('Checking charging status','正在核实充电状态') :
-      showLive ? tr('Charging','充电中') :
-      !s && data.start.ack!=='ACCEPTED' && data.start.callback!=='ACCEPTED' ? tr('Start unconfirmed','启动结果待确认') : tr('Waiting for the charger','等待充电桩启动');
+    const w=data.wallet || {}, s=lastSession, settled=finalBill();
+    const matched=data.session.state==='MATCHED' && !uncertain;
+    const ended=settled || finished() || ['AWAITING_CDR','PAYMENT_PENDING','PAYMENT_REQUIRED'].includes(w.settlement);
+    const closed=closedStart(), failed=!ended && !active() && (refused(data.start) || w.settlement==='REJECTED');
+    const stopping=!ended && (queuedStop || sending==='stop-charge' || !!data.stop);
+    const stopFailed=stopping && (refused(data.stop) || stopUnconfirmed || data.stop?.callback==='TIMEOUT');
+    const receiving=matched && active() && Number.isFinite(s?.kwh) && s.kwh>0;
+    const confirmed=matched || data.start.callback==='ACCEPTED';
     const amount=c=>'R'+(c/100).toFixed(2);
-    const energy=Number.isFinite(w.energyKwh) && w.energyKwh>=0 ? w.energyKwh : s?.kwh;
-    const terminalCost=Number.isSafeInteger(w.costCents) && w.costCents>=0;
-    let body='',message='';
-    if(done) {
-      message=finalBill() ? (getOrder()?.useTestCredit ? tr('Settled using station test credit.','已使用本站试充额度结算。') : tr('Payment settled.','本单已结算。')) :
-        w.settlement==='PAYMENT_REQUIRED'?tr('Payment is outstanding.','本单待付款。'):
-        s?.status==='INVALID'?tr('The station marked this session invalid. Contact the operator.','桩端将本次会话标为无效，请联系现场运营人员核对。'):
-        tr('Charging ended. Waiting for the final bill.','充电已结束，正在等待桩端最终账单。');
-    } else if(stopFailed && showLive)message=tr('Stop is unconfirmed. Check the charger and use its Stop control if charging continues.','停止结果尚未确认。若桩屏仍在充电，请在桩屏停止本次会话。');
-    else if(stopWaiting)message=tr('Waiting for the station to confirm the end of this session.','正在等待桩端确认本次充电已结束。');
-    else if(failed)message=declined(data.start.callback) ?
-      tr('The charger reported an unsuccessful start. Check its display.','桩端返回启动失败，请查看桩屏提示。') :
-      tr('The operator declined the start request.','运营平台未受理启动请求。');
-    else if(!showLive){
-      if(data.start.callback==='TIMEOUT')message=tr('The charger response timed out. Check this order and the charger display.','桩端启动超时。请查看桩屏并刷新本单。');
-      else if(data.start.callback==='ACCEPTED')message=tr('The charger accepted the start. Waiting for the charging session.','桩端已接受启动，正在等待充电会话。');
-      else if(s?.status==='PENDING')message=tr('The operator reports a pending session.','运营平台已建立会话，正在等待桩端开始充电。');
-      else if(s?.status==='RESERVATION')message=tr('The operator reports a reservation. Waiting for charging to begin.','运营平台已返回本单的预约记录，正在等待桩端开始充电。');
-      else if(data.start.ack==='ACCEPTED')message=tr('The operator accepted the request. Waiting for the charger.','运营平台已受理，正在等待桩端启动结果。');
-      else message=tr('AFE recorded your request. The operator’s receipt is pending. Check this order before starting again.','AFE 已登记，尚未收到运营平台的受理回执。请刷新本单查看进展，避免重复启动。');
+    const gun=gunName(data.target) || tr('connector','充电枪');
+    const zero=settled && w.energyKwh===0 && w.costCents===0;
+    let heading,message='';
+    if(closed){heading=tr('Order closed','订单已关闭');message=tr('The charger did not confirm the start in time. No debit.','桩端启动超时，本次未扣款。');}
+    else if(ended){
+      heading=settled?tr('Charging bill','充电账单'):tr('Charging ended','充电已结束');
+      if(zero)message=tr('No energy delivered. You were charged R0.00.','本次未充入电量，已扣 R0.00');
+      else if(settled)message=getOrder()?.useTestCredit?tr('Paid with station test credit.','已使用本站试充额度结算。'):tr('Payment settled.','本单已结算。');
+      else if(w.settlement==='PAYMENT_REQUIRED')message=tr('Payment is outstanding.','本单待付款。');
+      else if(w.settlement==='PAYMENT_PENDING')message=tr('Checking the bank card payment.','正在核实本次银行卡扣款。');
+      else if(s?.status==='INVALID')message=tr('The station marked this session invalid. Contact the station.','桩端将本次会话标为无效，请联系场站。');
+      else message=tr('Waiting for the final bill from the station.','正在等待桩端最终账单。');
+    }else if(stopFailed){heading=tr('Stop unconfirmed','停止结果待确认');message=tr('Check the charger display. If it is still charging, use Stop on the charger.','请核对桩屏。若仍在充电，请在桩屏停止。');}
+    else if(stopping){heading=tr('Stopping charging','正在停止充电');message=tr('Waiting for the charger to finish.','正在等待桩端结束');}
+    else if(failed){heading=tr('Charging could not start','充电未启动');message=tr('The operator or charger declined the start. Check the charger display.','桩端或运营平台已拒绝启动，请查看桩屏提示。');}
+    else if(uncertain || (s?.status==='ACTIVE' && !matched)){heading=tr('Checking charging status','正在核实充电状态');message=tr('Waiting for current readings from the charger.','正在核实桩端最新读数。');}
+    else if(receiving){heading=tr('Charging','正在充电');}
+    else if(confirmed){heading=tr('Waiting for meter readings','等待电表读数');message=tr('The charger accepted the start. Waiting for the meter.','桩端已受理，等待电表读数');}
+    else{
+      heading=tr('Start submitted for '+gun,'已提交 '+gun+'启动请求');
+      message=data.start.callback==='TIMEOUT'?tr('Charger response timed out. Check this order.','桩端回应超时，请查看本次订单。'):
+        data.start.ack==='ACCEPTED'?tr('The operator received your request. Waiting for the charger.','平台已收到请求，正在等待桩端确认。'):
+        tr('Waiting for the operator to acknowledge your request.','正在等待平台确认收到请求。');
     }
-    if(showLive && !done) {
+    const elapsed=Date.now()-Date.parse(data.start.requestedAt);
+    const longWait=!closed && !settled && !receiving && (elapsed>=30000 || failed || stopFailed || data.start.callback==='TIMEOUT');
+    const metric=(label,value,unit='')=>'<div><span>'+label+'</span><strong>'+value+(unit?'<small>'+unit+'</small>':'')+'</strong></div>';
+    const energy=Number.isFinite(w.energyKwh)?w.energyKwh:s?.kwh;
+    const haveReading=ended || receiving || (stopping && matched && s?.kwh>0);
+    const finalCost=Number.isSafeInteger(w.costCents) && w.costCents>=0;
+    const covered=settled?Math.max(0,w.costCents-(w.shortfallCents || 0)-(w.operatorReviewCents || 0)):null;
+    const price=settled?amount(covered):finalCost?amount(w.costCents):haveReading && Number.isSafeInteger(w.estimatedCents)?amount(w.estimatedCents):'—';
+    let body=closed || failed?'':'<div class="session-meters">'+metric(tr('Energy delivered','已充电量'),haveReading && Number.isFinite(energy)?esc(energy===0?'0.00':String(Number(energy.toFixed(3)))):'—','kWh')+
+      metric(settled?tr('Amount charged','实扣金额'):finalCost?tr('Final cost','最终费用'):tr('Estimated cost','预估费用'),price)+'</div>';
+    if(s && active() && !ended){
+      body+='<p class="session-duration">'+tr('Elapsed time','充电时长')+' <strong data-charge-duration>'+durationText(s.startedAt)+'</strong></p>';
+      if(s.startedAt)tickDuration();
       const measured=Number.isFinite(s.soc) && s.soc>=0 && s.soc<=100;
-      const demo=!measured && getOrder()?.useTestCredit===true;
-      const pct=measured ? Math.round(s.soc) : demo ? simulatedSoc() : null;
-      body='<div class="session-soc"><div class="session-battery" aria-hidden="true"><i '+(demo?'data-demo-battery ':'')+'style="--soc:'+(pct??0)+'%"></i></div><div><span>'+
-        (demo?tr('Battery · demo SOC','车辆电量 · 模拟 SOC'):tr('Vehicle battery','车辆电量'))+'</span><strong '+(demo?'data-demo-soc':'')+'>'+
-        (pct===null?tr('Not reported','暂未上报'):pct+'%')+'</strong></div></div>';
-      if(demo)tickSoc();
-    }
-    if(showLive || done) {
-      const metric=(label,value,unit='')=>'<div><span>'+label+'</span><strong>'+value+(unit?'<small>'+unit+'</small>':'')+'</strong></div>';
-      body+='<div class="session-meters">'+metric(tr('Energy delivered','已充电量'),Number.isFinite(energy)?esc(String(Number(energy.toFixed(3)))):'—','kWh')+
-        metric(terminalCost ? tr('Final cost','最终费用') : tr('Estimated cost','预估费用'),terminalCost ? amount(w.costCents) :
-        Number.isSafeInteger(w.estimatedCents)?amount(w.estimatedCents):'—')+'</div>';
+      const demo=!measured && receiving && getOrder()?.useTestCredit===true;
+      if(measured || demo){
+        const pct=measured?Math.round(s.soc):simulatedSoc();
+        body+='<div class="session-soc"><div class="session-battery" aria-hidden="true"><i '+(demo?'data-demo-battery ':'')+'style="--soc:'+pct+'%"></i></div><div><span>'+
+          (demo?tr('Demo SOC','演示 SOC'):tr('Vehicle battery','车辆电量'))+'</span><strong '+(demo?'data-demo-soc':'')+'>'+pct+'%</strong></div></div>';
+        if(demo)tickSoc();
+      }
     }
     if(w.shortfallCents>0)body+='<p>'+tr('Outstanding balance','本单待补金额')+' '+amount(w.shortfallCents)+'</p>';
     if(w.operatorReviewCents>0)body+='<p>'+tr('Pending operator review','待运营核对差额')+' '+amount(w.operatorReviewCents)+'</p>';
-    if(w.lowBalanceStop && !done)message=tr('The wallet is running low. AFE has requested a stop.','钱包余额接近用尽，AFE 已申请停充。');
-    if((uncertain || (s && data.session.state!=='MATCHED' && !stopWaiting)) && !done)message+=' '+tr('Updating station readings.','正在核实最新桩端读数。');
-    const progress=(!showLive && !done && !failed) || stopWaiting;
+    if(w.lowBalanceStop && !ended && !closed)message=tr('The wallet is running low. AFE requested a stop.','钱包余额接近用尽，AFE 已申请停充。');
     const place=sessionLocation(data.target);
-    return '<section class="app-card rec-card session-view" aria-label="'+heading+'"><h1>'+heading+'</h1>'+
+    const stationPhone=data.target.location_id==='ZA41020001000001'?'<a class="text-action" href="tel:+27687259103">'+tr('Contact station','联系场站')+'</a>':'';
+    const help=longWait?'<div class="session-help"><button class="text-action" type="button" data-page="order-info">'+tr('View this order','查看本次订单')+'</button>'+stationPhone+'</div>':'';
+    return '<section class="app-card rec-card session-view"><h1>'+heading+'</h1>'+
       (place?'<p class="session-place">'+esc(place)+'</p>':'')+body+
-      (message?'<p class="session-message" role="status">'+(progress?'<i class="session-spinner" aria-hidden="true"></i>':'')+message+'</p>':'')+
-      (done || failed?'<button type="button" class="rec-refresh" data-act="close-payment">'+tr('Close','关闭')+'</button>':'')+
-      (!finalBill() && !failed?button('session-status',tr('Refresh charging status','更新充电状态')):'')+
-      (!data.canCommand && !done && !failed?'<button class="rec-refresh" type="button" data-account="order" data-id="'+esc(getOrder().id)+'">'+tr('Resume charge controls','恢复本次充电操作')+'</button>':'')+'</section>';
+      (message?'<p class="session-message" role="status">'+(!ended && !closed && !failed && !stopFailed?'<i class="session-spinner" aria-hidden="true"></i>':'')+message+'</p>':'')+help+
+      (isClosed()?'<button type="button" class="rec-refresh" data-act="rescan-closed">'+tr('Scan again','重新扫码')+'</button>':'')+
+      (ended || closed || failed?'<button type="button" class="text-action" data-act="close-payment">'+tr('Done','完成')+'</button>':'')+
+      (!isClosed()?button('session-status',tr('Refresh charging status','更新充电状态')):'')+
+      (!data.canCommand && !ended && !closed && !failed?'<button class="rec-refresh" type="button" data-account="order" data-id="'+esc(getOrder().id)+'">'+tr('Resume charge controls','恢复本次充电操作')+'</button>':'')+'</section>';
   }
   function sessionFooter() {
-    if(!data?.start || finalBill() || closedStart() || lastSession?.status!=='ACTIVE' || !data.canCommand)return '';
+    if(!data?.start || isClosed() || finished() || ['AWAITING_CDR','PAYMENT_PENDING','PAYMENT_REQUIRED'].includes(data.wallet?.settlement) || lastSession?.status!=='ACTIVE' || !data.canCommand)return '';
     const stopping=queuedStop || sending==='stop-charge' || data.stop;
     return '<button type="button" class="station-primary session-stop" data-act="stop-charge"'+(stopping || uncertain || !active()?' disabled':'')+'>'+
       (stopping ? tr('Stop requested','已申请停止充电') : tr('Stop charging','停止充电'))+'</button>';
@@ -257,5 +283,5 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   document.addEventListener('visibilitychange',()=>{if (!document.hidden && getOrder() && data?.start) void query();});
   function listed(gun) { return capability?.targets.some(t=>same(t,gun))===true; }
   function permitsCheckout(gun) { return capability?.enabled===true && listed(gun); }
-  return {load,query,send,card,screen,sessionFooter,failureText,lastProblem:()=>failureText(error),clear,permitsCheckout,mayStart,isBusy:()=>busy,hasStart:()=>!!data?.start};
+  return {load,query,send,card,screen,sessionFooter,failureText,lastProblem:()=>failureText(error),clear,permitsCheckout,mayStart,isClosed,hasEvidence:()=>!!data,isBusy:()=>busy,hasStart:()=>!!data?.start};
 }

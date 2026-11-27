@@ -14,7 +14,8 @@
   try { const saved = localStorage.getItem('afe.live.language'); if (saved) chinese = saved === 'zh'; } catch {}
   let locations = [], sourceTime = '', stationKey = '', connectorKey = '';
   let loading = false, catalogError = '', manuallySelected = false;
-  let pendingScan = null;
+  let pendingScan = null, autoPick = false, launchAtStation = true;
+  let pendingPaymentReturn=null;
   let scanIssue = null, checkedGun = '', scannedSiteKey = '';
   let scannedPlug = null, plugTimer, catalogRequest;
   const tr = (en, zh) => chinese ? zh : en;
@@ -39,9 +40,9 @@
     } catch {}
     return false;
   }
-  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account,getGun:()=>selectedGun(),onStation:()=>page==='station',sessionLocation});
+  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account,getGun:()=>selectedGun(),onStation:()=>page==='station',sessionLocation,gunName});
   const account=driverAccount({root,tr,esc,navigate,render,getPage:()=>page,getPayments:()=>payments,
-    getChargeConnector:()=>page==='station' ? connectorKey : ''});
+    getChargeConnector:()=>page==='station' ? connectorKey : '',sessionLocation});
   const priorSession = hasPriorSession();
   let page = 'home';
   let renderedPage = '', lastContent = '', lastNav = '', lastFooter = '';
@@ -151,12 +152,58 @@
       connectorKey = '';
     }
   }
+  function pluggedOptions(site) {
+    if(!sourceTime || catalogError || Date.now()-Date.parse(sourceTime)>60000)return [];
+    const guns=connectors(site);
+    if(guns.some(g=>g.status==='UNKNOWN') || (site?.id===rivoniaSite.id && !rivoniaGuns.every(([,uid,id])=>guns.some(g=>g.evse_uid===uid && g.connector_id===id))))return [];
+    return guns.filter(g=>payments.preview.plugReport(g) ||
+      (['AVAILABLE','PREPARING'].includes(g.status) && g.vehicle_connection==='CONNECTED'));
+  }
+  function recommend(site) {
+    if(!autoPick || payments.isStarting() || payments.hasOrder())return;
+    const plugged=pluggedOptions(site);
+    connectorKey=plugged.length===1 ? keyForGun(plugged[0]) : '';
+  }
   function openStation(site,fromStationQr=false) {
+    payments.releaseClosed();
     manuallySelected=true;
+    autoPick=!fromStationQr;
     scannedSiteKey=fromStationQr ? keyFor(site) : '';
     connectorKey='';
     chooseSite(site);
+    recommend(site);
     navigate('station');
+  }
+  function restoreCheckout(){
+    pendingPaymentReturn ||= account.takeCheckoutReturn();
+    const saved=pendingPaymentReturn;
+    if(!saved || saved.owner!==account.owner())return false;
+    const site=locations.find(s=>connectors(s).some(g=>keyForGun(g)===saved.connector));
+    if(!site || catalogError)return false;
+    pendingPaymentReturn=null;
+    chooseSite(site);connectorKey=saved.connector;manuallySelected=true;autoPick=false;
+    payments.returned(saved);
+    navigate('station',false);
+    history.replaceState({afeView:'station',stationKey,connectorKey},'');
+    if(saved.reference)void account.reconcileReturn(saved.reference);
+    return true;
+  }
+  function homeOrder(){
+    if(!account.active())return null;
+    return payments.ongoingOrder() || account.ongoingOrder(payments.closedOrderId());
+  }
+  async function returnToCharge(id) {
+    const order=homeOrder();
+    if(!order || order.id!==id)return;
+    if(payments.ongoingOrder()?.id!==id){
+      await account.act('order',id);
+      if(payments.orderId()!==id)return;
+    }
+    const target=payments.target();
+    if(!target)return;
+    autoPick=false;manuallySelected=false;resumeConnector(target);
+    navigate('station');
+    void payments.checkStatus();
   }
   function resumeConnector(target) {
     if (manuallySelected) return selectedGun();
@@ -195,6 +242,8 @@
       const previous = selectedSite();
       if (page === 'station' && !previous) navigate('home', false);
       chooseSite(previous || rivonia || locations[0]);
+      if(page==='wallet' && pendingPaymentReturn)restoreCheckout();
+      if(page==='station')recommend(selectedSite());
       if (!manuallySelected && payments.target()) resumeConnector(payments.target());
       if (scannedPlug && page==='station') {
         const gun=selectedGun();
@@ -230,10 +279,18 @@
     return '<button class="app-back" type="button" data-page="home"><span aria-hidden="true">‹</span>' +
       tr('Charging stations','充电场站') + '</button>';
   }
-  function sessionLocation(t) {
+  function gunName(t) {
+    if(!t)return '';
+    const slot=t.location_id===rivoniaSite.id && rivoniaGuns.find(([,uid,id])=>uid===t.evse_uid && id===t.connector_id);
+    if(slot)return tr('Connector '+slot[0],slot[0]+' 枪');
     const site=locations.find(s=>s.id===t.location_id && s.country_code===t.country_code && s.party_id===t.party_id);
-    const gun=t.location_id===rivoniaSite.id && rivoniaGuns.find(([,uid,id])=>uid===t.evse_uid && id===t.connector_id);
-    return [site?.name || (gun?'382 Rivonia':''),gun && tr('Connector '+gun[0],gun[0]+' 枪')].filter(Boolean).join(' · ');
+    const index=connectors(site).findIndex(g=>keyForGun(g)===keyForGun(t));
+    return index<0 ? '' : tr('Connector '+(index+1),'枪口 '+(index+1));
+  }
+  function sessionLocation(t) {
+    if(!t)return '';
+    const site=locations.find(s=>s.id===t.location_id && s.country_code===t.country_code && s.party_id===t.party_id);
+    return [site?.name || (t.location_id===rivoniaSite.id?'382 Rivonia':''),gunName(t)].filter(Boolean).join(' · ');
   }
   function gunPicker(site, guns) {
     // Keep the physical left/right labels even if the CPO reorders or omits a connector.
@@ -262,7 +319,8 @@
         '<span class="gun-status" data-status="' + (payments.preview.plugReport(gun)?'AVAILABLE':esc(gun?.status || '')) + '">' + esc(state) +
         (payments.preview.usable(gun) && payments.preview.connected(gun)?'<small>'+tr('Connected','已连接')+'</small>':'')+'</span></span></label>';
     }).join('');
-    const instruction=scannedSiteKey===keyFor(site) && !connectorKey ?
+    const instruction=!connectorKey && pluggedOptions(site).length>1 ? '<p class="gun-choice-hint">'+tr('Both cables are plugged in. Choose yours.','两把枪均已插上，请选择你车上的那把。')+'</p>' :
+      scannedSiteKey===keyFor(site) && !connectorKey ?
       '<p class="gun-choice-hint">'+tr('Match the connector label on the charger.','请按桩身标识选择你要使用的枪口。')+'</p>':'';
     return '<fieldset class="gun-picker"><legend>' + tr('Select a connector','选择充电枪') +
       '</legend>'+instruction+'<div class="gun-grid">' + tiles + '</div></fieldset>';
@@ -286,14 +344,13 @@
     if (!site) return backButton() + '<p class="app-card" role="status">' +
       tr('Station details are temporarily unavailable.','暂时无法获取场站详情。') + '</p>';
     const gun = selectedGun(), guns = connectors(site);
-    const destination=stationDirections(site);
-    const directions=destination ? '<a class="driver-map-link" target="_blank" rel="noopener noreferrer" href="' +
-      esc(destination) + '">' + tr('Get directions ↗','导航到这里 ↗') + '</a>' : '';
-    return backButton() + '<h1>' + esc(site.name || tr('Charging station','充电场站')) + '</h1><p class="app-muted">' +
-      esc([site.address,site.city].filter(Boolean).join(', ')) + '</p>' + directions +
-      '<section class="app-card rec-card station-connectors">' + gunPicker(site,guns) +
-      payments.preview.banner(gun,{loading,refreshed:!!gun && !catalogError && checkedGun===keyForGun(gun),recheck:!!canRecheck(gun),stationStartable:payments.acceptsStationStatus(gun)})+
-      recheckPanel(gun)+(gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
+    const connected=gun && (payments.preview.plugReport(gun) || (payments.preview.usable(gun) && payments.preview.connected(gun)));
+    const plug=connected && !payments.preview.preview() ? '<p class="checkout-connected" role="status">✓ '+esc(gunName(gun))+
+      tr(' · plugged in, ready to start',' · 已插枪，待启动')+'</p>' :
+      payments.preview.banner(gun,{loading,refreshed:!!gun && !catalogError && checkedGun===keyForGun(gun),recheck:!!canRecheck(gun),stationStartable:payments.acceptsStationStatus(gun)});
+    return '<div class="station-checkout"><header>'+backButton()+'<h1>'+esc(site.name || tr('Charging station','充电场站'))+'</h1></header>'+
+      '<section class="app-card rec-card station-connectors">'+gunPicker(site,guns)+plug+recheckPanel(gun)+
+      (gun ? tariffDetails(gun.tariff) : '')+'</section>'+payments.card(gun,true)+'</div>';
   }
   function scanRecovery() {
     if(!scanIssue)return {};
@@ -312,7 +369,11 @@
       tr(loading?'Updating…':'Refresh station list',loading?'正在刷新…':'刷新场站目录')+'</button>')+'</div>'};
   }
   function browse() {
-    if (page === 'home') return driverHome({tr,esc,locations,site:selectedSite(),loading,catalogError,configured:!!AFE_BASE_URL,sourceTime});
+    if (page === 'home') {
+      const order=homeOrder();
+      return driverHome({tr,esc,locations,site:selectedSite(),loading,catalogError,configured:!!AFE_BASE_URL,sourceTime,
+        returnOrder:order ? {id:order.id,gun:gunName(order.target)} : null,plugged:pluggedOptions(selectedSite()).map(gunName)});
+    }
     if (page === 'report') return reportDetail();
     if (page === 'station') return stationDetail();
     if (account.handles(page)) return account.screen(page);
@@ -353,14 +414,16 @@
     dock.hidden=!footer;
     const overlay=document.getElementById('charge-progress');
     overlay.hidden=!(page==='station' && payments.isStarting());
-    if(!overlay.hidden)overlay.querySelector('strong').textContent=payments.preview.preview()?tr('Starting demo charging…','正在模拟启动充电…'):tr('Starting your charging session…','正在启动充电…');
+    if(!overlay.hidden)overlay.querySelector('strong').textContent=payments.preview.preview()?tr('Starting demo charging…','正在模拟启动充电…'):tr('Submitting start for '+gunName(gun)+'…','正在提交 '+gunName(gun)+' 启动请求…');
     root.closest('.app-root').inert=!overlay.hidden;
   }
   function navigate(next, push = true) {
     if (!tabPages.has(next) && !account.handles(next) && !['station','report'].includes(next)) return;
     next=account.target(next);
+    if(next==='wallet' && account.active() && restoreCheckout())return;
     if (next !== page && push) history.pushState({afeView:next,stationKey,connectorKey},'');
     const changed=page!==next;
+    if(changed)launchAtStation=false;
     if(changed && page==='scan'){scanIssue=null;pendingScan=null;}
     if(changed)checkedGun='';
     if(changed && page==='station'){scannedSiteKey='';forgetScan();payments.resetCredit();payments.preview.leave();}
@@ -379,12 +442,12 @@
     }
     const match = driverResolveCode(raw,locations);
     if (match.kind === 'report' && !AFE_BASE_URL) return navigate('report');
-    if (match.kind === 'station' && sourceTime && !catalogError) return openStation(locations[match.siteIndex],fromCamera);
+    if (match.kind === 'station' && sourceTime && !catalogError) return openStation(locations[match.siteIndex],true);
     if (match.kind === 'connector' && sourceTime && !catalogError) {
       const site = locations[match.siteIndex];
       const gun = connectors(site).find(g => g.evse_uid === match.evseUid && g.connector_id === match.connectorId);
       if (gun) {
-        manuallySelected = true; chooseSite(site); connectorKey = keyForGun(gun);
+        payments.releaseClosed(); autoPick=false; manuallySelected = true; chooseSite(site); connectorKey = keyForGun(gun);
         if (fromCamera) rememberScan(gun); else forgetScan();
         return navigate('station');
       }
@@ -411,7 +474,7 @@
     if (gun) {
       forgetScan();
       checkedGun='';
-      manuallySelected = true; connectorKey = keyForGun(gun);
+      autoPick=false; manuallySelected = true; connectorKey = keyForGun(gun);
       if(scannedSiteKey===stationKey && ['AVAILABLE','PREPARING'].includes(gun.status))rememberScan(gun);
       history.replaceState({afeView:page,stationKey,connectorKey},'');
       render();
@@ -433,7 +496,7 @@
     if (control.dataset.page) return navigate(control.dataset.page);
     if (control.dataset.scanSite && page==='scan') {
       const site=locations.find(s=>keyFor(s)===control.dataset.scanSite);
-      if(site && !catalogError)openStation(site);
+      if(site && !catalogError)openStation(site,true);
       return;
     }
     if (control.dataset.mapInfo) return stationSheet.open(control.dataset.mapInfo,control);
@@ -443,6 +506,10 @@
       return;
     }
     switch (control.dataset.act) {
+      case 'return-charge': return void returnToCharge(control.dataset.id);
+      case 'rescan-closed':
+        if(payments.releaseClosed())navigate('scan');
+        return;
       case 'report-site': return navigate('report');
       case 'scan': return navigate('scan');
       case 'language': return language();
@@ -481,7 +548,7 @@
     let next = event.state?.afeView || 'home';
     if (next === 'station') {
       const site = locations.find(s => keyFor(s) === event.state.stationKey);
-      if (site) { connectorKey = event.state.connectorKey; chooseSite(site); manuallySelected = true; }
+      if (site) { autoPick=false; connectorKey = event.state.connectorKey; chooseSite(site); manuallySelected = true; }
       else next = 'home';
     }
     navigate(next,false);
@@ -491,24 +558,33 @@
   render();
   const sitesReady=refreshSites();
   const ready=account.start().then(async next=>{
-    const returned=account.takeCardReturn();
-    if (returned) {
+    if(next==='wallet' && (page==='home' || page==='account-loading')){
       await sitesReady;
-      const site=locations.find(s=>connectors(s).some(g=>keyForGun(g)===returned.connector));
-      if (site && (page==='home' || page==='account-loading')) {
-        chooseSite(site); connectorKey=returned.connector; manuallySelected=true; next='station';payments.linked(returned.cardId,returned.vehicleId);
-        history.replaceState({afeView:next,stationKey,connectorKey},'');
-      }
+      if(restoreCheckout())return;
     }
     if(page==='home' || page==='account-loading') navigate(next,false);
     else if (page==='station' && account.active()) { render(); void account.loadWallet(); }
   });
   void Promise.all([sitesReady,payments.loadCapability(),payments.loadCommands(),ready])
-    .then(async()=>{if(account.active()){await payments.checkStatus();await payments.finishReturn(resumeConnector);}});
+    .then(async()=>{
+      if(account.active()){
+        await Promise.all([payments.checkStatus(),account.loadOrders()]);
+        await payments.finishReturn(resumeConnector);
+      }
+      if(launchAtStation && page==='home' && payments.closedOrderId())payments.releaseClosed();
+      if(launchAtStation && page==='home' && locations.length===1 && !document.hidden && !homeOrder() && !payments.hasOrder() && pluggedOptions(selectedSite()).length)openStation(selectedSite());
+      render();
+    });
   function pollCatalog(){
     if(document.hidden)return;
-    if(page==='station' || (page==='home' && (!sourceTime || Date.now()-Date.parse(sourceTime)>=30000)))void refreshSites();
+    if(page==='station' || (page==='wallet' && pendingPaymentReturn) || (page==='home' && (!sourceTime || Date.now()-Date.parse(sourceTime)>=30000)))void refreshSites();
   }
   setInterval(pollCatalog,8000);
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelPlugStart();else pollCatalog();});
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden)cancelPlugStart();
+    else {
+      pollCatalog();
+      if(page==='home' && account.active())void account.loadOrders();
+    }
+  });
 })();

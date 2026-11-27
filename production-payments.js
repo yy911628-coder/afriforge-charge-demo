@@ -1,6 +1,6 @@
 'use strict';
 
-function productionPayments({tr, esc, pair, render, getAccount, getGun, onStation, sessionLocation}) {
+function productionPayments({tr, esc, pair, render, getAccount, getGun, onStation, sessionLocation, gunName}) {
   const passFormat = /^[A-Za-z0-9_-]{43}$/;
   const attemptFormat = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
   const referenceFormat = /^[a-f0-9]{16}$/;
@@ -10,11 +10,11 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
   const validAmount = n => typeof n === 'string' && moneyFormat.test(n) && Number(n) > 0;
   const key = 'afe.production.payment.v2.' + AFE_BASE_URL;
   let fundingChoice='', selectedCardId=null, selectedVehicle='', starting=false, linking=false;
-  let testCreditChoice='';
+  let testCreditChoice='', menuOpen=false, cardsOpen=false, preferenceOwner=null;
   const preview=stationExperience({tr,esc,render,getAccount,onLinked:id=>{fundingChoice='card';selectedCardId=id;}});
   let current = null, capability = null, receipt = null, busy = false, error = '', checkingAccess = false;
   let capabilityError = '', signedReturnIntent = null, returnEvidence = null;
-  const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid,acceptsStationStatus,sessionLocation});
+  const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid,acceptsStationStatus,sessionLocation,gunName});
 
   function save() {
     try {
@@ -207,6 +207,19 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     const list=getAccount().vehicles();
     return (list.find(v=>v.id===selectedVehicle) || list.find(v=>v.isDefault) || list[0])?.id || '';
   }
+  function syncPreference(){
+    const owner=getAccount().owner();
+    if(owner===preferenceOwner)return;
+    preferenceOwner=owner;selectedCardId=null;selectedVehicle='';testCreditChoice='';menuOpen=false;cardsOpen=false;
+    let pref;
+    if(owner){try{pref=JSON.parse(localStorage.getItem('afe.charge.preference.'+AFE_BASE_URL+'.'+owner));}catch{}}
+    selectedCardId=getAccount().savedCards().some(c=>c.direct && c.id===pref?.card)?pref.card:null;
+    fundingChoice=['wallet','card'].includes(pref?.funding)?pref.funding:(getAccount().savedCards().some(c=>c.direct)?'card':'wallet');
+  }
+  function rememberFunding(){
+    if(!preferenceOwner || preview.preview())return;
+    try{localStorage.setItem('afe.charge.preference.'+AFE_BASE_URL+'.'+preferenceOwner,JSON.stringify({funding:fundingChoice,card:selectedCardId}));}catch{}
+  }
   function realCard(){
     const choices=getAccount().savedCards().filter(c=>c.direct);
     return choices.find(c=>c.id===selectedCardId) || (!selectedCardId && choices.length===1 ? choices[0] : null);
@@ -216,7 +229,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     const sample=preview.cards().find(c=>c.id===id);
     if(sample){preview.enable();selectedCardId=sample.id;}
     else if(getAccount().savedCards().some(c=>c.direct && c.id===id)){preview.leave();selectedCardId=id;}
-    render();
+    cardsOpen=false;menuOpen=false;rememberFunding();render();
   }
   async function bindCard(){
     if(linking || starting || current || preview.session())return;
@@ -230,57 +243,67 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     }finally{linking=false;}
   }
   function fundingPicker(gun){
-    const account=getAccount(),info=account.wallet(),isDemo=preview.preview();
-    const picker='<div class="funding-options" role="group" aria-label="'+tr('Payment method','支付方式')+'">'+
-      [['card',tr('Bank card','银行卡')],['wallet',tr('Wallet','钱包')]].map(([id,label])=>
-        '<button type="button" class="rec-refresh" data-act="fund-'+id+'" aria-pressed="'+(id===fundingChoice)+'"'+(preview.session()?' disabled':'')+'>'+label+'</button>').join('')+'</div>';
-    if(!fundingChoice)return picker;
-    let body='';
-    if(fundingChoice==='wallet'){
-      const credit=eligibleCredit(gun);
-      const onCredit=usingCredit(gun);
-      if(info){
-        const cents=onCredit?credit.remainingCents:info.balanceCents;
-        body='<p>'+tr(onCredit?'Available station test credit':'Wallet balance',onCredit?'本次可用试充额度':'钱包余额')+
-          ' R'+(cents/100).toFixed(2)+' · '+tr('Start above','启动须大于')+' R'+(info.minimumCents/100).toFixed(2)+'</p>';
-        if(checkPreviousOrder(gun))body+='<p>'+tr('Check your previous charge in Orders before starting another.','请先到「订单」查看上一笔充电的结果。')+'</p>';
-        else if(!onCredit && cents<=info.minimumCents)body+='<p>'+(
-          credit?.canFundCharge ? tr('Select station credit below, or top up your wallet.','可勾选下方本站试充额度，或为钱包充值。') :
-          tr('Top up to start with your wallet.','钱包余额不足，请充值后启动。'))+'</p>';
-        if(onCredit && cents<=info.minimumCents)body+='<p>'+tr('Station credit is too low to start.','本站试充额度不足以启动。')+'</p>';
+    syncPreference();
+    const account=getAccount(),info=account.wallet(),isDemo=preview.preview(),credit=eligibleCredit(gun),onCredit=usingCredit(gun);
+    const cards=[...account.savedCards().filter(c=>c.direct),...preview.cards()];
+    const card=isDemo?demoCard():realCard(),wallet=fundingChoice==='wallet';
+    const money=n=>'R'+(n/100).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const link=(act,label)=>'<button type="button" class="text-action" data-act="'+act+'">'+label+'</button>';
+    const accountLink=(act,label)=>'<button type="button" class="text-action" data-account="'+act+'">'+label+'</button>';
+    let summary=wallet?(onCredit?tr('Wallet · available station credit ','钱包 · 本次可用试充额度 ')+money(credit.remainingCents):
+      tr('Wallet','钱包')+(info?' · '+money(info.balanceCents):'')):
+      (card?esc(card.brand)+tr(' ending in ',' 尾号 ')+esc(card.last4)+tr(' · billed after charge',' · 充完扣款'):tr('Bank card','银行卡'));
+    let html='<div class="pay-summary"><strong>'+summary+'</strong><button type="button" class="text-action" data-act="change-funding" aria-expanded="'+menuOpen+'">'+
+      tr('Change','更换')+'</button></div>';
+    if(menuOpen){
+      html+='<div class="funding-options" role="group" aria-label="'+tr('Choose payment method','选择支付方式')+'">'+
+        ['wallet','card'].map(method=>{
+          const ready=method!==fundingChoice && (method!=='card' || cards.length===1) && !isDemo && fundingReady(gun,method) && (preview.connected(gun)||acceptsStationStatus(gun));
+          const label=ready?startLabel(method,gun):method==='wallet'?tr('Wallet','钱包'):tr('Bank card','银行卡');
+          const source=ready && method==='card' && card?' · '+esc(card.last4):ready && method==='wallet' && onCredit?' · '+tr('Test credit','试充额度'):'';
+          return '<button type="button" class="rec-refresh" data-act="'+(ready?'pay-':'fund-')+method+'" aria-pressed="'+(method===fundingChoice)+'">'+label+source+'</button>';
+        }).join('')+'</div>';
+      if(cards.length || !wallet)html+=link('manage-cards',tr('Choose or link a card','选卡或绑卡'));
+    }
+    if(!account.active() && !isDemo)return html+accountLink('station-login',tr('Sign in to charge','登录后充电'));
+    if(wallet){
+      if(credit)html+='<label class="acct-check credit-choice"><input type="checkbox" data-station-credit'+(onCredit?' checked':'')+'> '+
+        tr('Use this station’s test credit','使用本站试充额度')+(onCredit?'':' · '+money(credit.remainingCents))+'</label>';
+      if(!info)html+='<div class="checkout-help">'+accountLink('reload-wallet',tr('Check wallet balance','查询钱包余额'))+'</div>';
+      else if(!walletReady(gun)){
+        if(checkPreviousOrder(gun))html+='<p>'+tr('Check your previous order before starting.','请先查看上一笔充电订单。')+' <button type="button" class="text-action" data-page="orders">'+tr('Orders','查看订单')+'</button></p>';
+        else{
+          html+='<p class="checkout-help">'+(onCredit?tr('Station credit must exceed ','本站试充额度须大于 '):tr('Wallet balance must exceed ','钱包余额须大于 '))+money(info.minimumCents)+'</p><div class="checkout-recovery">';
+          if(info.pendingTopup){
+            html+=accountLink('continue-topup',tr('Continue top-up','继续充值'))+'<button type="button" class="text-action" data-account="check-topup" data-id="'+esc(info.pendingTopup.id)+'">'+tr('Check payment','查询充值结果')+'</button>';
+          }else if(info.topupEnabled)html+=accountLink('station-topup',tr('Top up R100','充值 R100'));
+          html+=link('fund-card',tr('Switch to bank card','换银行卡'))+'</div>';
+        }
       }
-      if(credit)body+='<label class="acct-check"><input type="checkbox" data-station-credit'+(usingCredit(gun)?' checked':'')+'> '+
-        tr('Internal test · use station credit','内部实车测试 · 使用本站试充额度')+' R'+(credit.remainingCents/100).toFixed(2)+'</label>';
-      body+='<button type="button" class="text-action" '+(account.active()?'data-page="wallet"':'data-account="station-login"')+'>'+tr(account.active()?'Open wallet':'Sign in to use wallet',account.active()?'查看钱包':'登录使用钱包')+'</button>';
-    }else{
-      body='<p>'+tr('Your card is charged automatically after charging.','充电结束后自动扣款。')+'</p>';
-      const cards=[...account.savedCards(),...preview.cards()];
-      const chosen=isDemo?demoCard():realCard();
-      if(cards.length)body+='<label class="acct-field">'+tr('Pay with','本次付款银行卡')+
-        '<select class="app-select" data-charge-card'+(preview.session()?' disabled':'')+'><option value="" disabled'+(!chosen?' selected':'')+'>'+tr('Choose a card','请选择银行卡')+'</option>'+
-        cards.map(c=>'<option value="'+esc(c.id)+'"'+(c.id===chosen?.id?' selected':'')+(!c.direct && !preview.cards().includes(c)?' disabled':'')+'>'+
-          esc(c.brand)+' ···· '+esc(c.last4)+'</option>').join('')+'</select></label>';
-      if(!preview.session())body+='<button type="button" class="text-action" data-act="bind-station-card">+ '+tr('Add a new card','添加新卡')+'</button>';
-      if(!account.active() && !isDemo)body+='<button type="button" class="text-action" data-account="station-login">'+tr('Sign in for live payments','登录使用正式支付')+'</button>';
+    }else if(!card || cardsOpen){
+      if(cards.length)html+='<label class="acct-field">'+tr('Pay with','选择付款卡')+'<select class="app-select" data-charge-card><option value="" disabled'+(!card?' selected':'')+'>'+tr('Choose a card','请选择银行卡')+'</option>'+
+        cards.map(c=>'<option value="'+esc(c.id)+'"'+(card?.id===c.id?' selected':'')+'>'+esc(c.brand)+' ···· '+esc(c.last4)+'</option>').join('')+'</select></label>';
+      html+=link('bind-station-card',tr('Add a new card','添加新卡'));
     }
-    if(isDemo){
-      body+='<p class="preview-note">'+tr('Demo card · Practice only','体验卡 · 模拟启动')+'</p>';
-      if(!preview.session())body+='<button type="button" class="text-action" data-act="leave-preview">'+tr('Return to live charging','返回正式充电')+'</button>';
-    }else if(account.active()){
-      const vehicles=account.vehicles(),id=vehicle();
-      body+=vehicles.length?'<label class="acct-field">'+tr('Charging vehicle','本次充电车辆')+'<select class="app-select" data-station-vehicle>'+
-        vehicles.map(v=>'<option value="'+esc(v.id)+'"'+(v.id===id?' selected':'')+'>'+esc(v.nickname+' · '+v.plate)+'</option>').join('')+'</select></label>':
-        '<button type="button" data-page="vehicle-new" class="text-action">'+tr('Add a vehicle','添加充电车辆')+'</button>';
-    }
-    return picker+body;
+    if(isDemo)return html+'<p class="preview-note">'+tr('Demo card · practice only','体验卡 · 模拟启动')+'</p>'+link('leave-preview',tr('Return to live charging','返回正式充电'));
+    const cars=account.vehicles(),id=vehicle();
+    if(!cars.length)return html+accountLink('station-vehicle',tr('Add your vehicle','添加本次充电车辆'));
+    const car=cars.find(v=>v.id===id);
+    return html+'<details class="vehicle-choice"><summary>'+tr('Vehicle','车辆')+' · '+esc(car?.nickname || car?.plate || '')+'</summary><label class="acct-field">'+
+      tr('Change vehicle','更换车辆')+'<select class="app-select" data-station-vehicle>'+cars.map(v=>'<option value="'+esc(v.id)+'"'+(v.id===id?' selected':'')+'>'+esc(v.nickname+' · '+v.plate)+'</option>').join('')+'</select></label></details>';
   }
-  function fundingReady(gun){
+  function fundingReady(gun,method=fundingChoice){
     if(busy || starting || commands.isBusy() || !(preview.usable(gun) || acceptsStationStatus(gun)))return false;
-    if(!fundingChoice)return false;
-    if(preview.preview())return !preview.session() && fundingChoice==='card' && !!demoCard();
+    if(!method)return false;
+    if(preview.preview())return !preview.session() && method==='card' && !!demoCard();
     if(!vehicle() || !commands.permitsCheckout(gun) || gun.tariff?.status!=='verified')return false;
     const info=getAccount().wallet();
-    return fundingChoice==='wallet'?walletReady(gun):info?.cardDirectEnabled===true && !!realCard();
+    return method==='wallet'?walletReady(gun):info?.cardDirectEnabled===true && !!realCard();
+  }
+  function startLabel(method,gun){
+    const name=gunName(gun);
+    if(!name)return tr('Start charging','开始充电');
+    return method==='card'?tr('Start '+name+' with card','用银行卡启动 '+name):tr('Start '+name+' with wallet','用钱包启动 '+name);
   }
   function readyToStart(gun){
     if(!preview.connected(gun) && !acceptsStationStatus(gun))return false;
@@ -292,7 +315,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     if(preview.session()==='active')return '<span class="dock-hint" role="status">'+tr('Demo charging started','模拟充电已开始')+'</span><button type="button" class="station-primary" data-act="end-preview">'+tr('End demo','结束体验')+'</button>';
     let hint='';
     if(!gun)hint=tr('Select a connector','请选择充电枪');
-    else if(!current && fundingChoice==='wallet' && checkPreviousOrder(gun))hint=tr('Check your previous charging order','请先查看上一笔充电订单');
+    else if(!current && fundingChoice==='wallet' && !walletReady(gun) && checkPreviousOrder(gun))hint=tr('Check your previous charging order','请先查看上一笔充电订单');
     else if(!acceptsStationStatus(gun) && gun.status==='RESERVED')hint=tr('Start unavailable while the reservation is unverified','预约归属待确认，暂不能启动');
     else if(gun.status==='CHARGING')hint=tr('This connector has a session in progress','此枪正在充电');
     else if(!acceptsStationStatus(gun) && !preview.usable(gun))hint=tr('This connector is unavailable','此枪当前不可启动');
@@ -305,7 +328,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     if(checkFirst && fundingReady(gun))hint=tr('Checks the plug with the station before starting','启动前将向桩端复核连接');
     const problem=commands.failureText(error) || commands.lastProblem();
     return (problem?'<span class="dock-hint charge-warning" role="alert">'+problem+'</span>':hint?'<span class="dock-hint">'+hint+'</span>':'')+'<button class="station-primary" type="button" data-act="'+(checkFirst?'verify-then-start':'station-start')+'"'+((checkFirst?fundingReady(gun):readyToStart(gun))?'':' disabled')+'>'+
-      (preview.preview()?tr('Start demo charging','开始充电（模拟）'):tr('Start charging','开始充电'))+'</button>';
+      (preview.preview()?tr('Start demo charging','开始充电（模拟）'):(fundingChoice&&gun?startLabel(current?.funding || fundingChoice,gun):tr('Start charging','开始充电')))+'</button>';
   }
   async function stationStart(gun){
     if(!onStation() || !readyToStart(gun))return;
@@ -353,7 +376,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
         tr('Close payment view','关闭本次支付视图')+'</button>';
     } else {content=fundingPicker(gun);}
     if (error) content += '<p role="alert" class="rec-alert">'+(commands.failureText(error) || esc(error))+'</p>';
-    if (!current && getAccount().active()) content+='<button class="rec-refresh" type="button" data-page="orders">'+tr('My orders','我的订单')+'</button>';
+    if (!stationView && !current && getAccount().active()) content+='<button class="rec-refresh" type="button" data-page="orders">'+tr('My orders','我的订单')+'</button>';
     return '<section class="app-card rec-card"><h2>'+(current?.funding==='wallet'?tr('Wallet charging','钱包充电'):tr('Pay for charging','充电支付'))+'</h2>'+content+
       (current || !stationView ? commands.card(gun,stationView) : '')+'</section>';
   }
@@ -383,10 +406,18 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     if (form.dataset.form === 'lookup') { current = {pass}; save(); void checkStatus(); }
   }
   function action(name,gun) {
+    if(name==='change-funding'){menuOpen=!menuOpen;cardsOpen=false;render();return;}
+    if(name==='manage-cards'){fundingChoice='card';cardsOpen=true;menuOpen=false;render();if(!realCard() && !getAccount().savedCards().some(c=>c.direct) && !preview.cards().length)void bindCard();return;}
+    if(name==='pay-card' || name==='pay-wallet'){
+      const method=name.slice(4);
+      if(current || !onStation() || !fundingReady(gun,method) || preview.preview())return;
+      fundingChoice=method;menuOpen=false;cardsOpen=false;rememberFunding();void stationStart(gun);return;
+    }
     if(name==='fund-card' || name==='fund-wallet'){
       if(preview.session() || current || starting)return;
-      fundingChoice=name.slice(5);
+      fundingChoice=name.slice(5);menuOpen=false;cardsOpen=fundingChoice==='card' && (!realCard() || getAccount().savedCards().filter(c=>c.direct).length>1);
       if(fundingChoice==='wallet')preview.leave();
+      rememberFunding();
       render();
       if(fundingChoice==='card' && !getAccount().savedCards().some(c=>c.direct) && !preview.cards().length)void bindCard();
       return;
@@ -414,7 +445,11 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     fundingReady,selectionKey:()=>JSON.stringify([getAccount().owner(),vehicle(),fundingChoice,selectedCardId,testCreditChoice,current?.id]),
     acceptsStationStatus,footer,preview,vehicle,sessionScreen:commands.screen,sessionFooter:commands.sessionFooter,hasDispatch:commands.hasStart,
     chooseVehicle(id){selectedVehicle=id;render();},
-    linked(id,vehicleId){fundingChoice='card';selectedCardId=id || null;selectedVehicle=vehicleId || '';},
+    returned(result){syncPreference();fundingChoice=result.funding;selectedVehicle=result.vehicleId || '';if(result.funding==='card')selectedCardId=result.cardId || null;menuOpen=false;cardsOpen=false;rememberFunding();},
+    orderId:()=>current?.id,
+    ongoingOrder:()=>current?.target && !commands.isClosed() && (commands.hasStart() || !commands.hasEvidence()) ? current : null,
+    closedOrderId:()=>commands.isClosed()?current?.id:null,
+    releaseClosed(){if(!commands.isClosed())return false;action('close-payment');return !current;},
     isStarting:()=>starting || preview.session()==='starting',
     hasOrder:() => current !== null, target:() => current?.target};
 }

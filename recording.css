@@ -274,3 +274,44 @@ html[data-theme=dark] .station-primary:not(:disabled) { background:#9ce2b1; colo
 .scan-recovery { display:grid; gap:8px; margin-bottom:12px; }
 .scan-recovery .rec-refresh { min-height:46px; color:var(--green-deep); border-color:var(--green); }
 .gun-choice-hint { margin:0 0 .65rem; font-size:.94rem; color:var(--muted); }
+
+.app-root .app-main:has(> .station-checkout) { padding:8px 14px 10px; }
+.station-checkout { display:grid; gap:8px; }
+.station-checkout header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.station-checkout header h1 { margin:0; font-size:1.2rem; }
+.station-checkout .app-back { min-height:40px; margin:0; }
+.station-checkout .rec-card { padding:12px 14px; gap:6px; box-shadow:none; }
+.station-checkout .gun-picker legend { margin-bottom:5px; font-size:1rem; }
+.station-checkout .gun-tile { padding:8px 10px; gap:2px; }
+.station-checkout .gun-status { margin-top:0; }
+.station-checkout .checkout-connected { padding:5px 9px; border-inline-start:3px solid var(--green); background:var(--mint); color:var(--green-deep); font-weight:650; border-radius:4px; }
+.station-checkout .rec-tariff { padding:6px 10px; }
+.station-checkout .rec-tariff-heading { display:flex; align-items:center; gap:6px; }
+.station-checkout .rec-tariff-total strong { font-size:1.2rem; }
+.station-checkout .pay-summary,.checkout-recovery,.session-help { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.station-checkout .pay-summary { min-height:38px; }
+.station-checkout .pay-summary strong { font-size:1rem; }
+.station-checkout .funding-options { margin:0; }
+.station-checkout .acct-check { align-items:center; min-height:36px; }
+.station-checkout .vehicle-choice { border-top:1px solid var(--line); }
+.station-checkout .vehicle-choice summary { min-height:38px; padding:8px 0; }
+.checkout-recovery .text-action,.session-help .text-action,.home-station-actions > * { min-height:44px; }
+.station-checkout .acct-message:empty {display:none;}
+.session-view .session-meters { gap:10px; }
+.session-view .session-meters > div { background:var(--surface-2); border:0; border-radius:12px; padding:12px; }
+.session-view .session-meters strong { color:var(--green-deep); font-size:clamp(1.65rem,7.5vw,2.5rem); }
+.session-view .session-duration { color:var(--muted); }
+.session-view .session-duration strong { color:var(--text); font-variant-numeric:tabular-nums; }
+.session-view .session-soc { padding:10px 14px; }
+.session-view .session-soc strong { font-size:1.25rem; }
+.session-help a { display:inline-flex; align-items:center; text-decoration:underline; }
+.home-charge-action { display:flex; justify-content:space-between; align-items:center; gap:.5rem; margin:8px 12px 0; min-height:44px; padding:8px 13px; background:var(--mint); color:var(--green-deep); border:1px solid var(--green); border-radius:13px; text-align:start; font:inherit; font-weight:700; cursor:pointer; }
+.home-station-actions { display:flex; align-items:center; justify-content:space-around; gap:8px; }
+.home-station-actions a,.home-station-actions button { display:inline-flex; align-items:center; justify-content:center; flex:1; font:inherit; font-weight:650; background:transparent; border:0; color:var(--green-deep); cursor:pointer; }
+.driver-home .driver-map-area { height:clamp(108px,calc(100dvh - 505px - env(safe-area-inset-bottom)),420px); }
+.driver-home:has(.home-charge-action) .driver-map-area { height:clamp(90px,calc(100dvh - 565px - env(safe-area-inset-bottom)),365px); }
+@media(max-height:700px) {
+  .station-checkout .rec-card { padding:9px 12px; gap:4px; }
+  .station-checkout .gun-type { font-size:.73rem; }
+  .driver-home .driver-map-legend { min-height:24px; }
+}

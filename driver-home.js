@@ -165,7 +165,7 @@ function syncDriverMap(root,tr,sites,onSelect){
   update();
 }
 
-function driverHome({tr, esc, locations, site, loading, catalogError, configured, sourceTime}) {
+function driverHome({tr, esc, locations, site, loading, catalogError, configured, sourceTime, returnOrder, plugged=[]}) {
   const selected = site || locations[0];
   const feedReady = !!sourceTime && !catalogError && configured;
   const reportOnly = !selected && !feedReady;
@@ -205,14 +205,17 @@ function driverHome({tr, esc, locations, site, loading, catalogError, configured
     const address = isReport ? 'Edenburg, Sandton' : [item.address,item.city].filter(Boolean).join(', ');
     const label = isReport ? tr('From the charging order report','充电订单报表')
       : tr('View connectors','查看枪口');
-    const {availability,price}=driverStationFacts(item,feedReady,tr);
+    const {availability,power,price}=driverStationFacts(item,feedReady,tr);
+    const directions=stationDirections(item);
+    const actions='<div class="home-station-actions">'+(directions?'<a class="driver-map-link" href="'+esc(directions)+'" target="_blank" rel="noopener noreferrer">'+tr('Directions ↗','导航 ↗')+'</a>':'')+
+      '<button type="button" data-page="scan">'+tr('Scan to charge','扫码充电')+'</button></div>';
     return '<button type="button" class="recommended-card driver-site" ' +
       (isReport ? 'data-act="report-site"' : 'data-site="' + index + '"') + '>' +
       '<span class="recommended-avatar" aria-hidden="true">ϟ</span><span class="recommended-copy"><small>' +
       label + '</small><b>' + esc(isReport ? '382 Rivonia' : item.name || item.id) + '</b>' +
       (address ? '<span>' + esc(address) + '</span>' : '') +
-      '<span class="station-facts"><span class="station-availability">'+esc(availability)+'</span><span class="driver-site-rate">'+esc(price)+'</span></span>'+
-      '</span><span class="recommended-arrow" aria-hidden="true">›</span></button>';
+      '<span class="station-facts"><span>'+tr('Up to ','最高 ')+esc(power)+'</span><span class="station-availability">'+esc(availability)+'</span><span class="driver-site-rate">'+esc(price)+'</span></span>'+
+      '</span><span class="recommended-arrow" aria-hidden="true">›</span></button>'+actions;
   }
 
   let stationList;
@@ -232,14 +235,17 @@ function driverHome({tr, esc, locations, site, loading, catalogError, configured
   else if (reportOnly) status = !configured || catalogError === 'PRODUCTION_OCPI_NOT_CONFIGURED'
     ? tr('Live connector status is pending.', '枪口实时状态待接入。')
     : tr('Live connector status is unavailable.', '暂时无法更新枪口状态。');
+  const resume=returnOrder?'<button type="button" class="home-charge-action" data-act="return-charge" data-id="'+esc(returnOrder.id)+'">'+tr('Return to this charge','返回本次充电')+(returnOrder.gun?' · '+esc(returnOrder.gun):'')+' <span aria-hidden="true">›</span></button>':'';
+  const choose=plugged.length && selected && !resume?'<button type="button" class="home-charge-action" data-site="'+locations.indexOf(selected)+'">'+esc(selected.name)+' · '+
+    (plugged.length===1?esc(plugged[0])+tr(' plugged in · choose payment',' 已插枪 · 选支付方式'):tr('Select your plugged-in connector','请选择你已插好的枪口'))+' <span aria-hidden="true">›</span></button>':'';
   return '<section class="home-map-first driver-home" aria-label="' + title + '">' +
-    '<header class="map-home-top"><div><h1>' + title + '</h1></div>' +
+    resume+choose+'<header class="map-home-top"><div><h1>' + title + '</h1></div>' +
     (configured ? '<button type="button" class="map-filter-button driver-refresh" data-act="refresh" aria-label="' +
       refresh + '" title="' + refresh + '"' + (loading ? ' disabled' : '') + '><span aria-hidden="true">↻</span></button>' : '') +
     '</header><div class="driver-map-layout"><div class="driver-map-area">' +
     (mapContent || fallback) + (mapContent ? '<a class="driver-map-credit" href="https://www.openstreetmap.org/copyright" ' +
       'rel="noopener noreferrer" target="_blank">© OpenStreetMap contributors</a>' : '') +
-    '</div><div class="driver-map-legend"><span>' + esc(area) + ' · ' + mapCaption + '</span>' + mapAlternative +
+    '</div><div class="driver-map-legend"><span>' + esc(area) + ' · ' + mapCaption + '</span>' + (located?'':mapAlternative) +
     '</div></div><section class="station-drawer driver-directory"><div class="driver-grip" aria-hidden="true"></div>' +
     '<div class="drawer-heading"><h2>' + tr('Charging stations','充电场站') + '</h2></div>' + stationList +
     (status ? '<p class="driver-live-note" role="status">' + status + '</p>' : '') + '</section></section>';

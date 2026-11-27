@@ -1,7 +1,7 @@
 'use strict';
 
-function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getChargeConnector}) {
-  const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','orders','notifications']);
+function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getChargeConnector,sessionLocation}) {
+  const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','orders','order-info','notifications']);
   const publicPages=new Set(['login','register','forgot','reset']);
   let profile=null,orders=[],ordersState='',willVisit='',emailHint='',notice='',working=false,ordersLoad=0;
   let wallet=null,walletState='',walletRequest=0;
@@ -28,6 +28,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   const requested=entry.searchParams.get('account');
   let initial=resetCode?'reset':['delete','login','wallet','register','forgot'].includes(requested)?requested:null;
   const cardReturnKey='afe.card-link.connector.'+AFE_BASE_URL;
+  const topupReturnKey='afe.topup.connector.'+AFE_BASE_URL;
   const cardLinkReturn=requested==='wallet' && entry.searchParams.has('card_link');
   const cardLinkVerified=cardLinkReturn && entry.searchParams.get('card_link')==='verified';
   const returnedCardId=cardLinkVerified ? resetParams.get('linked_card') : null;
@@ -38,18 +39,41 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   }
   if(requested){entry.searchParams.delete('account');history.replaceState(null,'',entry.pathname+entry.search+entry.hash);}
   const api=(path,method,body)=>AFEApi.account(path,method,body);
-  function takeCardReturn() {
-    if (!cardLinkReturn) return '';
-    try {
-      const raw=sessionStorage.getItem(cardReturnKey);
-      sessionStorage.removeItem(cardReturnKey);
-      const saved=JSON.parse(raw);
-      if (profile?.user.uid && saved?.owner===profile.user.uid && saved.until>Date.now() && typeof saved.connector==='string') {
-        const card=cardLinkVerified && profile.cards.find(c=>c.direct && c.id===returnedCardId);
-        return {connector:saved.connector,cardId:card?.id,vehicleId:saved.vehicleId};
-      }
-    } catch {}
-    return '';
+  let returnHandled=false;
+  function checkoutContext(){
+    return {owner:profile?.user.uid,connector:getChargeConnector(),vehicleId:getPayments().vehicle(),
+      until:Date.now()+60*60000};
+  }
+  function returnContexts(key){
+    try{
+      const all=JSON.parse(localStorage.getItem(key+'.'+profile.user.uid));
+      return Array.isArray(all)?all.filter(v=>v?.owner===profile.user.uid && v.until>Date.now()):[];
+    }catch{return [];}
+  }
+  function rememberCheckout(key,context,fields) {
+    if(!context.owner || context.owner!==profile?.user.uid)return;
+    const saved={...context,...fields};
+    // Prefer the originating tab. An installed app can return from Peach in a new tab.
+    const pending=returnContexts(key).filter(v=>v.flow!==saved.flow);
+    try {sessionStorage.setItem(key,JSON.stringify(saved));}catch{}
+    try {localStorage.setItem(key+'.'+context.owner,JSON.stringify([...pending,saved].slice(-8)));}catch{}
+  }
+  function takeCheckoutReturn() {
+    if(returnHandled || requested!=='wallet' || !profile?.user.uid)return null;
+    const key=cardLinkReturn?cardReturnKey:topupReturnKey,owner=profile.user.uid;
+    const pending=returnContexts(key);
+    let saved;
+    try {saved=JSON.parse(sessionStorage.getItem(key));}catch{}
+    if(saved?.owner!==owner || !(saved.until>Date.now()))saved=pending.length===1?pending[0]:null;
+    returnHandled=true;
+    if(!saved)return null;
+    try {sessionStorage.removeItem(key);localStorage.setItem(key+'.'+owner,JSON.stringify(pending.filter(v=>v.flow!==saved.flow)));}catch{}
+    if(typeof saved.connector!=='string' || !saved.connector)return null;
+    if(cardLinkReturn){
+      const card=cardLinkVerified && profile.cards.find(c=>c.direct && c.id===returnedCardId);
+      return {...saved,funding:'card',cardId:card?.id};
+    }
+    return /^[a-f0-9]{16}$/.test(saved.reference)?{...saved,funding:'wallet'}:null;
   }
   const button=(page,en,zh)=>'<button type="button" class="acct-row" data-page="'+page+'">'+tr(en,zh)+'<span aria-hidden="true">›</span></button>';
   const action=(op,text,id='')=>'<button type="button" class="rec-refresh" data-account="'+op+'" data-id="'+esc(id)+'">'+text+'</button>';
@@ -114,7 +138,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   function notificationText(n){
     const amount=money(n.costCents || 0).replace(/^R\s*/,'');
     switch(n.kind){
-      case 'STARTED':return tr('[AFE Charge] Your vehicle has started charging.','【AFE Charge】您的车辆已开始充电。');
+      case 'STARTED':return tr('[AFE Charge] The station opened your session. Check the meter in the app.','【AFE Charge】桩端已建立本次会话，可在 App 查看电表读数。');
       case 'TEST_CREDIT_SETTLED':return tr('Internal charging test completed. Test credit used: ','内部试充结束，本次使用运营额度 ')+money(n.fundedCents)+(n.operatorReviewCents?' · '+tr('AFE to reconcile','AFE 待核对差额')+' '+money(n.operatorReviewCents):'');
       case 'CARD_PAID':return tr('[AFE Charge] Charging ended. Your card ending '+n.last4+' was charged R '+amount+'.','【AFE Charge】充电结束，已从您尾号 '+n.last4+' 的银行卡扣款 R '+amount+'。');
       case 'WALLET_SETTLED':return n.shortfallCents?tr('[AFE Charge] Charging ended. Wallet payment applied. Outstanding: '+money(n.shortfallCents)+'.','【AFE Charge】充电结束，钱包已抵扣，剩余待补 '+money(n.shortfallCents)+'。'):
@@ -150,7 +174,10 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     const n=++ordersLoad;ordersState='loading';render();
     try{const value=await api('/me/orders');if(n!==ordersLoad)return;orders=value.orders;ordersState='ready';}
     catch{if(n===ordersLoad)ordersState='error';}
-    finally{if(n===ordersLoad && getPage()==='orders')render();}
+    finally{if(n===ordersLoad && ['home','orders','order-info'].includes(getPage()))render();}
+  }
+  function ongoingOrder(exclude){
+    return orders.find(o=>o.id!==exclude && o.target && ['IN_PROGRESS','AWAITING_CDR'].includes(o.settlement));
   }
   async function loadWallet(){
     const uid=profile?.user.uid,n=++walletRequest;
@@ -222,7 +249,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     clearTimeout(resendTimer);
     if(['wallet','station'].includes(page) && profile)void loadWallet();
     if(page==='notifications' && profile)void loadNotifications();
-    if(page==='orders' && profile)void loadOrders();
+    if(['orders','order-info','home'].includes(page) && profile)void loadOrders();
     if(['register','email-verify','forgot'].includes(page))void checkMail();
   }
   function purposeForPage(){
@@ -381,9 +408,19 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       (cards.length?cards.map(c=>'<article class="acct-item"><p>'+esc(c.brand)+' ···· '+esc(c.last4)+'</p>'+action('unlink',tr('Unlink card','解绑银行卡'),c.id)+'</article>').join(''):
       '<p>'+tr('No linked cards.','尚未绑定银行卡。')+'</p>')+
       cardBinding())+(getPayments().hasOrder()?getPayments().card(null):'');
+    if(page==='order-info'){
+      const target=getPayments().target(),order=orders.find(o=>o.id===getPayments().orderId());
+      const vehicle=vehicles.find(v=>v.id===order?.vehicleId);
+      const funding=order?.useTestCredit?tr('Station test credit','本站试充额度'):order?.funding==='card'?tr('Bank card','银行卡'):order?.funding==='wallet'?tr('Wallet','钱包'):'';
+      return back('station',tr('Return to charge','返回本次充电'))+title(tr('This charging order','本次充电订单'))+card('<h2>'+esc(sessionLocation(target))+'</h2>'+
+        (order?'<p>'+esc(new Date(order.createdAt).toLocaleString())+'</p>'+[vehicle?.nickname,funding].filter(Boolean).map(v=>'<p>'+esc(v)+'</p>').join(''):
+        '<p>'+tr('Retrieving order details…','正在读取订单资料…')+'</p>')+
+        (Number.isSafeInteger(order?.costCents)?'<p>'+tr('Final cost','最终费用')+' '+money(order.costCents)+'</p>':'')+
+        (target?.location_id==='ZA41020001000001'?'<a class="text-action" href="tel:+27687259103">'+tr('Contact station','联系场站')+' · +27 68 725 9103</a>':'')+feedback());
+    }
     if(page==='orders')return title(tr('Orders','订单'))+(getPayments().hasOrder()?getPayments().card(null):'')+card(
       (ordersState==='loading'?'<p>'+tr('Loading orders…','正在读取订单…')+'</p>':ordersState==='error'?action('reload-orders',tr('Retry loading orders','重新加载订单')):
-      orders.length?orders.map(o=>'<article class="acct-item"><h2>'+esc(o.target.location_id)+' · '+esc(o.target.connector_id)+'</h2><p>'+
+      orders.length?orders.map(o=>'<article class="acct-item"><h2>'+esc(sessionLocation(o.target) || tr('Charging order','充电订单'))+'</h2><p>'+
       esc(new Date(o.createdAt).toLocaleString())+' · '+(['card','wallet'].includes(o.funding)?(o.funding==='card'?tr('Bank card','银行卡')+(o.last4?' ···· '+esc(o.last4):''):o.useTestCredit?tr('Station test credit','本站试充额度'):tr('Wallet','钱包'))+' · '+(Number.isSafeInteger(o.costCents)?money(o.costCents):o.settlement==='CLOSED_UNCONFIRMED'?tr('Order closed · start timed out','订单已关闭 · 启动超时'):o.settlement==='REJECTED'?tr('Start declined','启动被拒'):o.settlement==='NOT_STARTED'?tr('Awaiting start','待启动'):tr('Awaiting final bill','待结算'))+(o.funding==='card' && o.settlement==='SETTLED'?' · '+tr('Paid','已扣款'):o.settlement==='PAYMENT_REQUIRED'?' · '+tr('Payment due','待支付'):o.settlement==='PAYMENT_PENDING'?' · '+tr('Payment pending','扣款待确认'):'')+(o.lowBalanceStop?' · '+tr('Low-balance stop requested','已请求低余额停充'):'')+(o.operatorReviewCents?' · '+tr('AFE to reconcile','AFE 待核对差额')+' '+money(o.operatorReviewCents):'')+(o.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(o.shortfallCents):''):'ZAR '+esc(o.amount))+'</p>'+action('order',tr('View order','查看订单'),o.id)+'</article>').join(''):
       '<p>'+tr('Your charging orders will appear here.','你的充电订单会显示在这里。')+'</p>')+feedback());
     return '';
@@ -424,23 +461,15 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     try {
       if(op==='bind-card'){
         if(!v.consent)return true;
-        const connector=getChargeConnector(),owner=profile.user.uid;
+        const context=checkoutContext();
         const result=await api('/me/cards/bind','POST',{consent:'afe-variable-charge-v1'}),url=new URL(result.url);
         if(url.origin!==new URL(AFE_BASE_URL).origin || url.pathname!=='/api/cards/bind/page' || !/^[\w-]{43}$/.test(url.searchParams.get('state') || ''))throw new Error('Invalid card binding address');
         try {
-          if(connector) sessionStorage.setItem(cardReturnKey,JSON.stringify({connector,owner,vehicleId:getPayments().vehicle(),until:Date.now()+30*60000}));
-          else sessionStorage.removeItem(cardReturnKey);
+          rememberCheckout(cardReturnKey,context,{flow:crypto.randomUUID()});
         } catch {}
         location.assign(url.href);
       }else if(op==='topup'){
-        const choice=Number(v.amount).toFixed(2),key=topupKey();
-        let saved;try{saved=JSON.parse(sessionStorage.getItem(key));}catch{}
-        if(saved?.amount!==choice){saved={amount:choice,requestId:crypto.randomUUID()};sessionStorage.setItem(key,JSON.stringify(saved));}
-        try{
-          const invoice=await api('/me/wallet/top-ups','POST',saved);
-          sessionStorage.removeItem(key);
-          if(invoice.status==='PENDING' && invoice.redirect_url)openTopup(invoice.redirect_url);
-        }finally{await loadWallet();}
+        await startTopup(v.amount);
       }else if(op==='send-code'){
         const purpose=purposeForPage();
         await sendCode(purpose==='existing'?profile.user.email:v.email,purpose);
@@ -477,7 +506,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
         }
         sessionStorage.removeItem(codeKey);resetCode=null;AFEAuth.end();
       } else if(op==='profile'){profile=await api('/me','PUT',{name:v.name,phone:v.phone,accountType:v.accountType});navigate('profile');}
-      else if(op==='vehicle'){profile=await api('/me/vehicles','POST',{...v,isDefault:!!v.isDefault || !profile.vehicles.length});navigate('vehicles');}
+      else if(op==='vehicle'){profile=await api('/me/vehicles','POST',{...v,isDefault:!!v.isDefault || !profile.vehicles.length});const dest=willVisit==='station'?'station':'vehicles';willVisit='';navigate(dest);}
       else if(op==='delete'){await api('/me','DELETE',{password:v.password,confirm:true});AFEAuth.end();}
     } catch(e){
       if(e.code==='INVALID_REGISTER_TOKEN'){sessionStorage.removeItem(codeKey);render();}
@@ -490,13 +519,34 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     }
     return true;
   }
+  async function startTopup(amount){
+    const choice=Number(amount).toFixed(2),key=topupKey(),context=checkoutContext();
+    let saved;try{saved=JSON.parse(sessionStorage.getItem(key));}catch{}
+    if(saved?.amount!==choice){saved={amount:choice,requestId:crypto.randomUUID()};sessionStorage.setItem(key,JSON.stringify(saved));}
+    try{
+      const invoice=await api('/me/wallet/top-ups','POST',saved);
+      if(context.owner!==profile?.user.uid)return;
+      sessionStorage.removeItem(key);
+      if(invoice.status==='PENDING' && invoice.redirect_url){
+        rememberCheckout(topupReturnKey,context,{flow:invoice.id,reference:invoice.id});
+        openTopup(invoice.redirect_url);
+      }
+    }finally{await loadWallet();}
+  }
+  async function reconcileReturn(ref){
+    if(!/^[a-f0-9]{16}$/.test(ref))return;
+    try{await api('/me/wallet/top-ups/'+ref+'/refresh','POST',{});}catch{}
+    await loadWallet();
+  }
   async function act(op,id){
     if(working)return;working=true;
     try{
       if(op==='station-login'){willVisit='station';navigate('login');return;}
+      if(op==='station-vehicle'){willVisit='station';navigate('vehicle-new');return;}
+      if(op==='station-topup'){if(profile && getChargeConnector() && wallet?.topupEnabled && !wallet.pendingTopup)await startTopup('100.00');return;}
       if(op==='reload-notifications'){await loadNotifications();return;}
       if(op==='reload-wallet'){await loadWallet();return;}
-      if(op==='continue-topup'){if(wallet?.pendingTopup?.redirect_url)openTopup(wallet.pendingTopup.redirect_url);return;}
+      if(op==='continue-topup'){if(wallet?.pendingTopup?.redirect_url){rememberCheckout(topupReturnKey,checkoutContext(),{flow:wallet.pendingTopup.id,reference:wallet.pendingTopup.id});openTopup(wallet.pendingTopup.redirect_url);}return;}
       if(op==='check-topup'){
         try{await api('/me/wallet/top-ups/'+encodeURIComponent(id)+'/refresh','POST',{});}finally{await loadWallet();}
         return;
@@ -529,10 +579,10 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       if(pendingCode('register'))initial='register';
       else if(pendingCode('reset'))initial='forgot';
     }
-    let next=initial || (profile && getPayments().hasOrder()?'orders':!profile && AFEAuth.wasSignedOut()?'login':'home');
+    let next=initial || (!profile && AFEAuth.wasSignedOut()?'login':'home');
     if(next==='login' && profile)next='profile';
     return target(next);
   }
-  return {screen,target,enter,start,submit,act,cardBinding,takeCardReturn,savedCards:()=>profile?.cards || [],vehicles:()=>profile?.vehicles || [],owner:()=>profile?.user.uid || '',chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
+  return {screen,target,enter,start,submit,act,cardBinding,takeCheckoutReturn,reconcileReturn,loadOrders,ongoingOrder,savedCards:()=>profile?.cards || [],vehicles:()=>profile?.vehicles || [],owner:()=>profile?.user.uid || '',chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
     handles:page=>page==='account-loading'||protectedPages.has(page)||publicPages.has(page)};
 }
