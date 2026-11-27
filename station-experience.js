@@ -13,20 +13,30 @@ function stationExperience({tr,esc,render,getAccount,onLinked}) {
   }
   function connected(gun) {return !!gun && (preview ? plugged===key(gun) : gun.vehicle_connection==='CONNECTED');}
   function usable(gun) {return !!gun && gun.standard==='IEC_62196_T2_COMBO' && ['AVAILABLE','PREPARING'].includes(gun.status);}
+  function plugReport(gun) {
+    if (!gun?.reportsPlugOnReserved || gun.status!=='RESERVED') return '';
+    if (gun.vehicle_connection==='DISCONNECTED') return tr('Cable disconnected','未插枪');
+    if (gun.vehicle_connection==='CONNECTED') return tr('Vehicle connected','已连接车辆');
+    return tr('Plug-in to verify','插枪待核验');
+  }
   function banner(gun,{loading=false,refreshed=false,recheck=false,pilot=false}={}) {
     if(!gun)return '';
     const ok=connected(gun), busy=!usable(gun);
     const reserved=gun.status==='RESERVED', inUse=gun.status==='CHARGING';
-    const message=pilot && reserved ? tr('Ready for a test start request','试充准备就绪，等待桩端核验') :
-      pilot && !ok ? tr('Ready for a test start request','已可申请试充') :
+    const report=plugReport(gun);
+    const message=report || (pilot && !ok ? tr('Ready for a test start request','已可申请试充') :
       reserved ? tr('Station reports a reservation','桩端上报此枪已预约') :
       inUse ? tr('This connector is charging','此枪正在充电') :
       busy ? tr('Connector unavailable','此枪暂不可用') :
       ok ? tr('✓ Vehicle connected','✓ 已连接车辆') :
       gun.vehicle_connection==='DISCONNECTED' || preview ? tr('Connect the charging cable','请连接充电枪') :
-      tr('Waiting for plug confirmation','等待桩端确认插枪');
+      tr('Waiting for plug confirmation','等待桩端确认插枪'));
     let detail='';
-    if(pilot)detail=tr('Plug the selected cable into your vehicle and press Start.','请把所选充电枪插入你的车辆，再点「开始充电」。');
+    if(report)detail=gun.vehicle_connection==='DISCONNECTED'
+      ? tr('Check that the selected cable is plugged into your vehicle.','请检查所选枪口是否已插入你的车辆。')
+      : tr('This station reports this status when a cable is plugged in. AFE checks access to the selected connector before starting.',
+        '这台桩在插枪时会上报此状态。启动前，AFE 会核对你能否使用这把枪。');
+    else if(pilot)detail=tr('Plug the selected cable into your vehicle and press Start.','请把所选充电枪插入你的车辆，再点「开始充电」。');
     else if(reserved)detail=tr('We could not confirm a reservation for your account. You can refresh this connector or choose another available one.',
       '尚未确认这笔预约属于你的账户。可刷新此枪状态，或选择现场空闲的另一把枪。');
     else if(inUse)detail=tr('If you started this session in AFE, open Orders to check it.','如果是你通过 AFE 启动的充电，可到「订单」查看。');
@@ -34,7 +44,9 @@ function stationExperience({tr,esc,render,getAccount,onLinked}) {
     else if(!busy && !ok)detail=tr('Plug in the selected cable. If already connected, leave it in place and refresh the status.',
       '请插好所选枪口。若已插枪，请保持连接并刷新状态。');
     if(refreshed && !loading && !preview)detail+=(detail?' ':'')+tr('Status checked.','已重新查询。');
-    return '<div class="plug-panel" role="status" data-plug-state="'+(busy?'busy':ok?'connected':'waiting')+'"><strong>'+message+'</strong>'+
+    const panelState=report ? (gun.vehicle_connection==='CONNECTED'?'connected':'waiting') :
+      busy ? 'busy' : ok ? 'connected' : 'waiting';
+    return '<div class="plug-panel" role="status" data-plug-state="'+panelState+'"><strong>'+message+'</strong>'+
       (preview ? '<small>'+tr('Charging preview','充电体验')+'</small>'+
         (!busy && !session?'<button type="button" data-act="toggle-plug">'+(ok?tr('Simulate unplugging','模拟拔枪'):tr('Simulate plugging in','模拟插枪'))+'</button>':'') :
         (detail?'<small>'+detail+'</small>':'')+
@@ -92,7 +104,7 @@ function stationExperience({tr,esc,render,getAccount,onLinked}) {
     if(!preview || !usable(gun) || !connected(gun) || session)return;
     session='starting';render();timer=setTimeout(()=>{session='active';render();},850);
   }
-  return {syncOwner,connected,usable,banner,showBinding,closeSheet,leave,startDemo,
+  return {syncOwner,connected,usable,plugReport,banner,showBinding,closeSheet,leave,startDemo,
     cards:()=>cards,preview:()=>preview,session:()=>session,
     enable(){preview=true;}, toggle(gun){if(preview && usable(gun) && !session)plugged=connected(gun)?'':key(gun);},
     finish(){clearTimeout(timer);session='';plugged='';}};

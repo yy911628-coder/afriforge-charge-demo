@@ -5,6 +5,11 @@
   const langButton = document.getElementById('afe-language');
   const navRoot = document.getElementById('driver-navigation');
   const idFields = ['country_code','party_id','location_id','evse_uid','connector_id'];
+  const rivoniaSite = {country_code:'ZA', party_id:'AFE', id:'ZA41020001000001'};
+  const rivoniaGuns = [
+    ['A','ZA41020001000001000100','ZA4102000100000100010001'],
+    ['B','ZA41020001000001000101','ZA4102000100000100010101']
+  ];
   let chinese = navigator.language.toLowerCase().startsWith('zh');
   try { const saved = localStorage.getItem('afe.live.language'); if (saved) chinese = saved === 'zh'; } catch {}
   let locations = [], sourceTime = '', stationKey = '', connectorKey = '';
@@ -57,10 +62,13 @@
   });
   function connectors(site) {
     if (!site) return [];
+    const rivonia = keyFor(site) === keyFor(rivoniaSite);
     return site.evses.flatMap(e => e.connectors.map(c => ({
       country_code:site.country_code, party_id:site.party_id, location_id:site.id, evse_uid:e.uid,
       connector_id:c.id, standard:c.standard, status:catalogError?'UNKNOWN':String(c.status || e.status || 'UNKNOWN').toUpperCase(), tariff:catalogError?null:c.tariff,
-      vehicle_connection:catalogError?'UNKNOWN':(c.vehicle_connection || 'UNKNOWN')
+      vehicle_connection:catalogError?'UNKNOWN':(c.vehicle_connection || 'UNKNOWN'),
+      reportsPlugOnReserved:rivonia && e.connectors.length===1 && c.standard==='IEC_62196_T2_COMBO' &&
+        rivoniaGuns.some(([,uid,id])=>e.uid===uid && c.id===id)
     })));
   }
   const keyForGun = (gun) => JSON.stringify(idFields.map(k=>gun[k]));
@@ -222,11 +230,6 @@
     return '<button class="app-back" type="button" data-page="home"><span aria-hidden="true">‹</span>' +
       tr('Charging stations','充电场站') + '</button>';
   }
-  const rivoniaSite = {country_code:'ZA', party_id:'AFE', id:'ZA41020001000001'};
-  const rivoniaGuns = [
-    ['A','ZA41020001000001000100','ZA4102000100000100010001'],
-    ['B','ZA41020001000001000101','ZA4102000100000100010101']
-  ];
   function sessionLocation(t) {
     const site=locations.find(s=>s.id===t.location_id && s.country_code===t.country_code && s.party_id===t.party_id);
     const gun=t.location_id===rivoniaSite.id && rivoniaGuns.find(([,uid,id])=>uid===t.evse_uid && id===t.connector_id);
@@ -252,7 +255,7 @@
       const value = gun && keyForGun(gun);
       const attrs = gun ? ' value="' + esc(value) + '"' + (value === connectorKey ? ' checked' : '') + (payments.preview.session()?' disabled':'') : ' disabled';
       const standard = gun?.standard === 'IEC_62196_T2_COMBO' ? 'CCS2' : gun?.standard;
-      const state = payments.pilotRequest(gun) && gun.status==='RESERVED' ? tr('Awaiting station check','试充待核验') : gun ? statusLabel(gun.status) : tr('Status unavailable','暂无状态');
+      const state = gun ? payments.preview.plugReport(gun) || statusLabel(gun.status) : tr('Status unavailable','暂无状态');
       return '<label class="gun-option"><input type="radio" name="charge-connector"' + attrs + '>' +
         '<span class="gun-tile"><strong>' + label + '</strong><span class="gun-mark" aria-hidden="true"></span>' +
         (standard ? '<span class="gun-type">' + esc([standard,physicalLabel].filter(Boolean).join(' · ')) + '</span>' : '') +

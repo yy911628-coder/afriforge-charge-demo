@@ -29,9 +29,10 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   function active() { return data?.session.state==='MATCHED' && data.session.status==='ACTIVE'; }
   function finished() { return data?.session.state==='MATCHED' && ['COMPLETED','INVALID'].includes(data.session.status); }
   const finalBill=()=>data?.wallet?.settlement==='SETTLED' && Number.isSafeInteger(data.wallet.costCents);
-  const refused=c=>[c?.ack,c?.callback].some(v=>v && !['ACCEPTED','TIMEOUT'].includes(v));
+  const declined=result=>!!result && result!=='ACCEPTED' && result!=='TIMEOUT';
+  const refused=c=>declined(c?.ack) || declined(c?.callback);
   function failureText(code) {
-    if(code==='TARGET_RESERVATION_UNVERIFIED')return tr('The station has not matched this reservation to your account. No start was sent.','桩端未提供与你账户匹配的预约，本次启动指令未发送。请让现场人员核对这把枪。');
+    if(code==='TARGET_RESERVATION_UNVERIFIED')return tr('AFE could not confirm your access to this connector. No start was sent. Ask the site operator to check it.','AFE 尚未确认你的账户可使用这把枪。此次启动指令未发送，请联系场站核对。');
     if(code==='TARGET_RESERVATION_LOOKUP_UNAVAILABLE')return tr('Reservation details are unavailable. Try again.','暂时无法读取桩端预约，请重新查询。');
     if(code==='TARGET_VEHICLE_NOT_CONNECTED')return tr('The station reports the cable is disconnected. Check the plug.','桩端上报尚未连接，请核对所选枪口并插紧。');
     if(code==='TARGET_EVSE_NOT_AVAILABLE')return tr('The station reports this connector is busy or unavailable.','桩端上报此枪正在使用或暂不可用，请核对枪口。');
@@ -118,7 +119,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         if (!starting) stopUnconfirmed=true;
       }
     } finally {busy=false;sending='';render();}
-    if (getOrder()===order && !uncertain) void query();
+    if (getOrder()===order && (!uncertain || (starting && error==='OCPI_DELIVERY_UNCERTAIN'))) void query();
     else if(getOrder()===order)pollSoon();
   }
   function simulatedSoc() {
@@ -136,12 +137,13 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   function screen() {
     if(!data?.start)return '';
     const w=data.wallet || {}, s=lastSession, done=finalBill() || s?.status==='COMPLETED' || s?.status==='INVALID';
-    const failed=refused(data.start) && !s, stopFailed=refused(data.stop) || stopUnconfirmed || data.stop?.callback==='TIMEOUT';
+    const failed=refused(data.start) && !done && s?.status!=='ACTIVE', stopFailed=refused(data.stop) || stopUnconfirmed || data.stop?.callback==='TIMEOUT';
     const stopWaiting=!done && !stopFailed && (queuedStop || sending==='stop-charge' || !!data.stop);
     const showLive=!done && s?.status==='ACTIVE';
     const heading=done ? tr('Charging bill','充电账单') : failed ? tr('Charging could not start','充电未启动') :
       stopWaiting ? tr('Stopping charging','正在停止充电') : showLive && (uncertain || !active()) ? tr('Checking charging status','正在核实充电状态') :
-      showLive ? tr('Charging','充电中') : tr('Waiting for the charger','等待充电桩启动');
+      showLive ? tr('Charging','充电中') :
+      !s && data.start.ack!=='ACCEPTED' && data.start.callback!=='ACCEPTED' ? tr('Start unconfirmed','启动结果待确认') : tr('Waiting for the charger','等待充电桩启动');
     const amount=c=>'R'+(c/100).toFixed(2);
     const energy=Number.isFinite(w.energyKwh) && w.energyKwh>=0 ? w.energyKwh : s?.kwh;
     const terminalCost=Number.isSafeInteger(w.costCents) && w.costCents>=0;
@@ -153,8 +155,17 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
         tr('Charging ended. Waiting for the final bill.','充电已结束，正在等待桩端最终账单。');
     } else if(stopFailed && showLive)message=tr('Stop is unconfirmed. Check the charger and use its Stop control if charging continues.','停止结果尚未确认。若桩屏仍在充电，请在桩屏停止本次会话。');
     else if(stopWaiting)message=tr('Waiting for the station to confirm the end of this session.','正在等待桩端确认本次充电已结束。');
-    else if(failed)message=tr('The station declined the start. Check the selected connector.','桩端拒绝启动，请核对枪口及现场状态。');
-    else if(!showLive)message=tr('Start requested. Waiting for your active session.','已提交启动请求，正在等待你的充电会话。');
+    else if(failed)message=declined(data.start.callback) ?
+      tr('The charger reported an unsuccessful start. Check its display.','桩端返回启动失败，请查看桩屏提示。') :
+      tr('The operator declined the start request.','运营平台未受理启动请求。');
+    else if(!showLive){
+      if(data.start.callback==='TIMEOUT')message=tr('The charger response timed out. Check this order and the charger display.','桩端启动超时。请查看桩屏并刷新本单。');
+      else if(data.start.callback==='ACCEPTED')message=tr('The charger accepted the start. Waiting for the charging session.','桩端已接受启动，正在等待充电会话。');
+      else if(s?.status==='PENDING')message=tr('The operator reports a pending session.','运营平台已建立会话，正在等待桩端开始充电。');
+      else if(s?.status==='RESERVATION')message=tr('The operator reports a reservation. Waiting for charging to begin.','运营平台已返回本单的预约记录，正在等待桩端开始充电。');
+      else if(data.start.ack==='ACCEPTED')message=tr('The operator accepted the request. Waiting for the charger.','运营平台已受理，正在等待桩端启动结果。');
+      else message=tr('AFE recorded your request. The operator’s receipt is pending. Check this order before starting again.','AFE 已登记，尚未收到运营平台的受理回执。请刷新本单查看进展，避免重复启动。');
+    }
     if(showLive && !done) {
       const measured=Number.isFinite(s.soc) && s.soc>=0 && s.soc<=100;
       const demo=!measured && getOrder()?.useTestCredit===true;

@@ -3,7 +3,7 @@
   "name": "AFE Charge",
   "short_name": "AFE",
   "description": "Find charging stations, manage your vehicles and view your AFE charging orders.",
-  "start_url": "./?v=afe-v54",
+  "start_url": "./?v=afe-v55",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

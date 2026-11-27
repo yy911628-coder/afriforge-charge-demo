@@ -172,6 +172,11 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
   function walletReady(gun){
     return usingCredit(gun)?eligibleCredit(gun).canFundCharge===true:getAccount().wallet()?.canFundCharge===true;
   }
+  function checkPreviousOrder(gun){
+    const info=getAccount().wallet(), credit=eligibleCredit(gun);
+    return !!info && ((info.balanceCents>info.minimumCents && info.canFundCharge===false) ||
+      (credit?.remainingCents>info.minimumCents && credit.canFundCharge===false));
+  }
   function pilotRequest(gun){
     if(!gun || preview.preview() || gun.standard!=='IEC_62196_T2_COMBO' ||
        !['AVAILABLE','RESERVED'].includes(gun.status) || gun.vehicle_connection==='DISCONNECTED')return false;
@@ -241,7 +246,8 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
         const cents=onCredit?credit.remainingCents:info.balanceCents;
         body='<p>'+tr(onCredit?'Available station test credit':'Wallet balance',onCredit?'本次可用试充额度':'钱包余额')+
           ' R'+(cents/100).toFixed(2)+' · '+tr('Start above','启动须大于')+' R'+(info.minimumCents/100).toFixed(2)+'</p>';
-        if(!onCredit && cents<=info.minimumCents)body+='<p>'+(
+        if(checkPreviousOrder(gun))body+='<p>'+tr('Check your previous charge in Orders before starting another.','请先到「订单」查看上一笔充电的结果。')+'</p>';
+        else if(!onCredit && cents<=info.minimumCents)body+='<p>'+(
           credit?.canFundCharge ? tr('Select station credit below, or top up your wallet.','可勾选下方本站试充额度，或为钱包充值。') :
           tr('Top up to start with your wallet.','钱包余额不足，请充值后启动。'))+'</p>';
         if(onCredit && cents<=info.minimumCents)body+='<p>'+tr('Station credit is too low to start.','本站试充额度不足以启动。')+'</p>';
@@ -289,7 +295,10 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     if(preview.session()==='active')return '<span class="dock-hint" role="status">'+tr('Demo charging started','模拟充电已开始')+'</span><button type="button" class="station-primary" data-act="end-preview">'+tr('End demo','结束体验')+'</button>';
     let hint='';
     if(!gun)hint=tr('Select a connector','请选择充电枪');
-    else if(pilotRequest(gun))hint=tr('With the selected cable plugged in, tap start for the station to verify it.','请插好所选枪口，再点开始充电。桩端会核验本次请求。');
+    else if(!current && fundingChoice==='wallet' && checkPreviousOrder(gun))hint=tr('Check your previous charging order','请先查看上一笔充电订单');
+    else if(pilotRequest(gun))hint=tr('Connect this cable to your vehicle and tap Start to check access.','确认这把枪已插入你的车，再点「开始充电」核验。');
+    else if(preview.plugReport(gun))hint=gun.vehicle_connection==='DISCONNECTED' ?
+      tr('Connect this cable to your vehicle','请先将这把枪插入车辆') : tr('Connector access needs confirmation','这把枪的使用权限待核验');
     else if(gun.status==='RESERVED')hint=tr('Start unavailable while the reservation is unverified','预约归属待确认，暂不能启动');
     else if(gun.status==='CHARGING')hint=tr('This connector has a session in progress','此枪正在充电');
     else if(!preview.usable(gun))hint=tr('This connector is unavailable','此枪当前不可启动');
