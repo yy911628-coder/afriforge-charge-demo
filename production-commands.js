@@ -1,6 +1,6 @@
 'use strict';
 
-function productionCommands({tr, esc, pair, render, password, getOrder, getPayment, targetValid, pilotRequest, sessionLocation}) {
+function productionCommands({tr, esc, pair, render, password, getOrder, getPayment, targetValid, acceptsStationStatus, sessionLocation}) {
   const fields = ['country_code','party_id','location_id','evse_uid','connector_id'];
   const same = (a,b) => targetValid(a) && targetValid(b) && fields.every(key => a[key]===b[key]);
   const isoTime = input => typeof input==='string' && Number.isFinite(Date.parse(input));
@@ -29,6 +29,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   function active() { return data?.session.state==='MATCHED' && data.session.status==='ACTIVE'; }
   function finished() { return data?.session.state==='MATCHED' && ['COMPLETED','INVALID'].includes(data.session.status); }
   const finalBill=()=>data?.wallet?.settlement==='SETTLED' && Number.isSafeInteger(data.wallet.costCents);
+  const closedStart=()=>data?.wallet?.settlement==='CLOSED_UNCONFIRMED' && !active();
   const declined=result=>!!result && result!=='ACCEPTED' && result!=='TIMEOUT';
   const refused=c=>declined(c?.ack) || declined(c?.callback);
   function failureText(code) {
@@ -44,12 +45,12 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
       permitsCheckout(data.target) && ((['wallet','card'].includes(getOrder()?.funding) && data.funding===getOrder().funding) ||
       (p?.status==='AUTHORIZED' && p.attemptId===data.attemptId && same(p.target,data.target))) &&
       same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' &&
-      ((['AVAILABLE','PREPARING'].includes(gun.status) && gun.vehicle_connection==='CONNECTED') || pilotRequest(gun));
+      ((['AVAILABLE','PREPARING'].includes(gun.status) && gun.vehicle_connection==='CONNECTED') || acceptsStationStatus(gun));
   }
   function pollSoon() {
     clearTimeout(poll);
     const waitingForBill=['wallet','card'].includes(data?.funding) && !['SETTLED','REJECTED','PAYMENT_REQUIRED'].includes(data.wallet?.settlement);
-    if (data?.start && !finalBill() && (!finished() || waitingForBill) && !refused(data.start) && !document.hidden) {
+    if (data?.start && !finalBill() && !closedStart() && (!finished() || waitingForBill) && !refused(data.start) && !document.hidden) {
       poll=setTimeout(() => {
         if (document.hidden) return;
         if (document.activeElement?.matches('input,select')) {pollSoon();return;}
@@ -136,6 +137,8 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   }
   function screen() {
     if(!data?.start)return '';
+    if(closedStart())return '<section class="app-card rec-card session-view"><h1>'+tr('Order closed','订单已关闭')+'</h1><p>'+esc(sessionLocation(data.target))+'</p><p class="session-message" role="status">'+
+      tr('The start timed out. AFE closed this order without a debit.','启动超时，AFE 已关闭本单，本次未扣款。')+'</p><button type="button" class="rec-refresh" data-act="close-payment">'+tr('Done','完成')+'</button></section>';
     const w=data.wallet || {}, s=lastSession, done=finalBill() || s?.status==='COMPLETED' || s?.status==='INVALID';
     const failed=refused(data.start) && !done && s?.status!=='ACTIVE', stopFailed=refused(data.stop) || stopUnconfirmed || data.stop?.callback==='TIMEOUT';
     const stopWaiting=!done && !stopFailed && (queuedStop || sending==='stop-charge' || !!data.stop);
@@ -195,7 +198,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
       (!data.canCommand && !done && !failed?'<button class="rec-refresh" type="button" data-account="order" data-id="'+esc(getOrder().id)+'">'+tr('Resume charge controls','恢复本次充电操作')+'</button>':'')+'</section>';
   }
   function sessionFooter() {
-    if(!data?.start || finalBill() || lastSession?.status!=='ACTIVE' || !data.canCommand)return '';
+    if(!data?.start || finalBill() || closedStart() || lastSession?.status!=='ACTIVE' || !data.canCommand)return '';
     const stopping=queuedStop || sending==='stop-charge' || data.stop;
     return '<button type="button" class="station-primary session-stop" data-act="stop-charge"'+(stopping || uncertain || !active()?' disabled':'')+'>'+
       (stopping ? tr('Stop requested','已申请停止充电') : tr('Stop charging','停止充电'))+'</button>';

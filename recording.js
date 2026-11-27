@@ -90,7 +90,7 @@
   }
   function canRecheck(gun) {
     return page === 'station' && scannedPlug?.waited && gun && keyForGun(gun) === scannedPlug.key &&
-      gun.status === 'AVAILABLE' && gun.vehicle_connection !== 'CONNECTED' && !payments.preview.preview() && !payments.hasOrder() && !payments.pilotRequest(gun);
+      gun.status === 'AVAILABLE' && gun.vehicle_connection !== 'CONNECTED' && !payments.preview.preview() && !payments.hasOrder() && !payments.acceptsStationStatus(gun);
   }
   function recheckPanel(gun) {
     if(scannedPlug?.pending && gun && keyForGun(gun)===scannedPlug.key)
@@ -259,7 +259,7 @@
       return '<label class="gun-option"><input type="radio" name="charge-connector"' + attrs + '>' +
         '<span class="gun-tile"><strong>' + label + '</strong><span class="gun-mark" aria-hidden="true"></span>' +
         (standard ? '<span class="gun-type">' + esc([standard,physicalLabel].filter(Boolean).join(' · ')) + '</span>' : '') +
-        '<span class="gun-status" data-status="' + esc(gun?.status || '') + '">' + esc(state) +
+        '<span class="gun-status" data-status="' + (payments.preview.plugReport(gun)?'AVAILABLE':esc(gun?.status || '')) + '">' + esc(state) +
         (payments.preview.usable(gun) && payments.preview.connected(gun)?'<small>'+tr('Connected','已连接')+'</small>':'')+'</span></span></label>';
     }).join('');
     const instruction=scannedSiteKey===keyFor(site) && !connectorKey ?
@@ -292,7 +292,7 @@
     return backButton() + '<h1>' + esc(site.name || tr('Charging station','充电场站')) + '</h1><p class="app-muted">' +
       esc([site.address,site.city].filter(Boolean).join(', ')) + '</p>' + directions +
       '<section class="app-card rec-card station-connectors">' + gunPicker(site,guns) +
-      payments.preview.banner(gun,{loading,refreshed:!!gun && !catalogError && checkedGun===keyForGun(gun),recheck:!!canRecheck(gun),pilot:payments.pilotRequest(gun)})+
+      payments.preview.banner(gun,{loading,refreshed:!!gun && !catalogError && checkedGun===keyForGun(gun),recheck:!!canRecheck(gun),stationStartable:payments.acceptsStationStatus(gun)})+
       recheckPanel(gun)+(gun ? tariffDetails(gun.tariff) : '') + '</section>' + payments.card(gun,true);
   }
   function scanRecovery() {

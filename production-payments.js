@@ -14,7 +14,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
   const preview=stationExperience({tr,esc,render,getAccount,onLinked:id=>{fundingChoice='card';selectedCardId=id;}});
   let current = null, capability = null, receipt = null, busy = false, error = '', checkingAccess = false;
   let capabilityError = '', signedReturnIntent = null, returnEvidence = null;
-  const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid,pilotRequest,sessionLocation});
+  const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid,acceptsStationStatus,sessionLocation});
 
   function save() {
     try {
@@ -177,16 +177,13 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     return !!info && ((info.balanceCents>info.minimumCents && info.canFundCharge===false) ||
       (credit?.remainingCents>info.minimumCents && credit.canFundCharge===false));
   }
-  function pilotRequest(gun){
-    if(!gun || preview.preview() || gun.standard!=='IEC_62196_T2_COMBO' ||
-       !['AVAILABLE','RESERVED'].includes(gun.status) || gun.vehicle_connection==='DISCONNECTED')return false;
-    if(current)return current.useTestCredit===true && current.funding==='wallet' && targetFields.every(k=>current.target?.[k]===gun[k]);
-    return fundingChoice==='wallet' && usingCredit(gun) && walletReady(gun);
+  function acceptsStationStatus(gun){
+    return !preview.preview() && gun?.reportsPlugOnReserved===true && ['AVAILABLE','RESERVED'].includes(gun.status);
   }
   async function startFunded(gun,vehicleId,funding,cardId=null){
     const account=getAccount();
     if(busy || current || !vehicleId || preview.preview() || (funding==='wallet'?!walletReady(gun):!account.wallet()?.cardDirectEnabled || !account.savedCards().some(card=>card.direct && card.id===cardId)) || !commands.permitsCheckout(gun) ||
-       !(pilotRequest(gun) || (preview.usable(gun) && preview.connected(gun))) || gun.tariff?.status!=='verified')return;
+       !(acceptsStationStatus(gun) || (preview.usable(gun) && preview.connected(gun))) || gun.tariff?.status!=='verified')return;
     const target=Object.fromEntries(targetFields.map(k=>[k,gun[k]])),key='afe.intent.'+AFE_BASE_URL;
     const useTestCredit=funding==='wallet' && usingCredit(gun);
     const choice=JSON.stringify([funding,target,vehicleId,cardId,useTestCredit]);
@@ -278,7 +275,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     return picker+body;
   }
   function fundingReady(gun){
-    if(busy || starting || commands.isBusy() || !(preview.usable(gun) || pilotRequest(gun)))return false;
+    if(busy || starting || commands.isBusy() || !(preview.usable(gun) || acceptsStationStatus(gun)))return false;
     if(!fundingChoice)return false;
     if(preview.preview())return !preview.session() && fundingChoice==='card' && !!demoCard();
     if(!vehicle() || !commands.permitsCheckout(gun) || gun.tariff?.status!=='verified')return false;
@@ -286,7 +283,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     return fundingChoice==='wallet'?walletReady(gun):info?.cardDirectEnabled===true && !!realCard();
   }
   function readyToStart(gun){
-    if(!preview.connected(gun) && !pilotRequest(gun))return false;
+    if(!preview.connected(gun) && !acceptsStationStatus(gun))return false;
     if(current)return !busy && !starting && !commands.isBusy() && !preview.preview() && !!commands.mayStart(gun);
     return fundingReady(gun);
   }
@@ -296,18 +293,15 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     let hint='';
     if(!gun)hint=tr('Select a connector','请选择充电枪');
     else if(!current && fundingChoice==='wallet' && checkPreviousOrder(gun))hint=tr('Check your previous charging order','请先查看上一笔充电订单');
-    else if(pilotRequest(gun))hint=tr('Connect this cable to your vehicle and tap Start to check access.','确认这把枪已插入你的车，再点「开始充电」核验。');
-    else if(preview.plugReport(gun))hint=gun.vehicle_connection==='DISCONNECTED' ?
-      tr('Connect this cable to your vehicle','请先将这把枪插入车辆') : tr('Connector access needs confirmation','这把枪的使用权限待核验');
-    else if(gun.status==='RESERVED')hint=tr('Start unavailable while the reservation is unverified','预约归属待确认，暂不能启动');
+    else if(!acceptsStationStatus(gun) && gun.status==='RESERVED')hint=tr('Start unavailable while the reservation is unverified','预约归属待确认，暂不能启动');
     else if(gun.status==='CHARGING')hint=tr('This connector has a session in progress','此枪正在充电');
-    else if(!preview.usable(gun))hint=tr('This connector is unavailable','此枪当前不可启动');
-    else if(!preview.connected(gun) && !recheck)hint=gun.vehicle_connection==='UNKNOWN' && !preview.preview() ?
+    else if(!acceptsStationStatus(gun) && !preview.usable(gun))hint=tr('This connector is unavailable','此枪当前不可启动');
+    else if(!acceptsStationStatus(gun) && !preview.connected(gun) && !recheck)hint=gun.vehicle_connection==='UNKNOWN' && !preview.preview() ?
       tr('Awaiting plug confirmation from the station','等待桩端确认连接') : tr('Connect the cable to your vehicle','请先将充电枪插入车辆');
     else if(!current && !fundingChoice)hint=tr('Choose a payment method','请选择支付方式');
     else if(!current && !preview.preview() && fundingChoice==='wallet' && !walletReady(gun))hint=tr('Choose sufficient wallet funds','请选择足额的可用余额或试充额度');
     else if(!current && fundingChoice==='card' && !(preview.preview()?demoCard():realCard()))hint=tr('Link or choose a card','请绑定或选择银行卡');
-    const checkFirst=recheck && !current && !preview.preview() && !preview.connected(gun) && !pilotRequest(gun);
+    const checkFirst=recheck && !current && !preview.preview() && !preview.connected(gun) && !acceptsStationStatus(gun);
     if(checkFirst && fundingReady(gun))hint=tr('Checks the plug with the station before starting','启动前将向桩端复核连接');
     const problem=commands.failureText(error) || commands.lastProblem();
     return (problem?'<span class="dock-hint charge-warning" role="alert">'+problem+'</span>':hint?'<span class="dock-hint">'+hint+'</span>':'')+'<button class="station-primary" type="button" data-act="'+(checkFirst?'verify-then-start':'station-start')+'"'+((checkFirst?fundingReady(gun):readyToStart(gun))?'':' disabled')+'>'+
@@ -418,7 +412,7 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     selectCredit(checked,gun){testCreditChoice=checked && eligibleCredit(gun)?getAccount().owner():'';error='';render();},
     resetCredit(){testCreditChoice='';},
     fundingReady,selectionKey:()=>JSON.stringify([getAccount().owner(),vehicle(),fundingChoice,selectedCardId,testCreditChoice,current?.id]),
-    pilotRequest,footer,preview,vehicle,sessionScreen:commands.screen,sessionFooter:commands.sessionFooter,hasDispatch:commands.hasStart,
+    acceptsStationStatus,footer,preview,vehicle,sessionScreen:commands.screen,sessionFooter:commands.sessionFooter,hasDispatch:commands.hasStart,
     chooseVehicle(id){selectedVehicle=id;render();},
     linked(id,vehicleId){fundingChoice='card';selectedCardId=id || null;selectedVehicle=vehicleId || '';},
     isStarting:()=>starting || preview.session()==='starting',
