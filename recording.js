@@ -403,7 +403,8 @@
     }
     syncDriverMap(root,tr,locations,stationSheet.open);
     stationSheet.update();
-    const nav = driverNav(tr,page==='history-detail'?'orders':account.handles(page) && !['wallet','orders'].includes(page)?'profile':page);
+    const walletTab=page==='wallet' || page==='wallet-refunds';
+    const nav = driverNav(tr,walletTab?'wallet':page==='history-detail'?'orders':account.handles(page) && page!=='orders'?'profile':page);
     if (lastNav !== nav) { navRoot.innerHTML = nav; lastNav = nav; }
     const gun=selectedGun();
     const dock=document.getElementById('station-action');

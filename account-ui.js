@@ -1,7 +1,7 @@
 'use strict';
 
 function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getChargeConnector,sessionLocation}) {
-  const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','orders','order-info','history-detail','notifications']);
+  const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','wallet-refunds','orders','order-info','history-detail','notifications']);
   const publicPages=new Set(['login','register','forgot','reset']);
   let profile=null,orders=[],ordersState='',willVisit='',emailHint='',notice='',working=false,ordersLoad=0;
   let wallet=null,walletState='',walletRequest=0;
@@ -85,6 +85,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   const back=(page,label)=>'<button type="button" class="app-back" data-page="'+page+'"><span aria-hidden="true">‹</span> '+label+'</button>';
   const title=label=>'<h1>'+label+'</h1>';
   const card=html=>'<section class="app-card rec-card">'+html+'</section>';
+  const refunds=walletRefundPage({tr,esc,api,owner:()=>profile?.user.uid,render,getPage,announce,describe,loadWallet,card,action,form,field,money});
   const pwHint=()=>tr('Use at least 8 characters, including a letter and a number.','至少 8 位，包含字母和数字。');
   const email=()=>field('email',tr('Email address','邮箱地址'),'email','autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" placeholder="name@example.com" required',emailHint);
   const pw=(name,label,fresh)=>field(name,label,'password','autocomplete="'+(fresh?'new-password':'current-password')+'" '+(fresh?'minlength="8" ':'')+'maxlength="256" required');
@@ -101,7 +102,14 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   }
   function describe(e){
     const errors={
-      WALLET_SETTLEMENT_BEFORE_DELETION:['Settle outstanding charging or top-ups and arrange a refund of any remaining wallet credit before deletion.','请先结清充电或充值交易，有剩余余额时请联系运营方退款后再注销。'],
+      WALLET_SETTLEMENT_BEFORE_DELETION:['Settle charging, top-ups and refunds first. Request any remaining refundable balance in Wallet.','请先结清充电、充值和退款。如有可退余额，可前往钱包办理原路退款。'],
+      REFUND_CHARGE_UNSETTLED:['Wait for your charging order to settle.','请等本次充电订单结清后再申请退款。'],
+      REFUND_BALANCE_CHANGED:['Your refundable balance changed. Review the updated amount.','可退余额已变动，请核对最新金额。'],
+      REFUND_RECEIPT_UNAVAILABLE:['We could not verify the original payment. Contact the station to check this top-up.','暂时无法核实原充值，请联系场站核对这笔付款。'],
+      REFUND_TOPUP_NOT_FOUND:['The original top-up could not be found.','未找到这笔已付款充值。'],
+      REFUND_PENDING:['This top-up already has a refund in progress.','该笔充值已有退款在处理中。'],
+      REFUND_REQUEST_CHANGED:['Review the updated refund details.','请核对最新退款信息。'],
+      WALLET_REVIEW_REQUIRED:['Contact the station to reconcile your wallet.','请联系场站核对钱包流水。'],
       WALLET_TOPUP_PENDING:['You already have a pending top-up. Check it below.','已有一笔待确认充值，请查看该笔付款。'],
       TOPUP_STATUS_UNCONFIRMED:['Peach has not confirmed the payment yet. You can check again.','Peach 尚未确认这笔付款，可稍后刷新。'],
       TOPUP_DELIVERY_UNCONFIRMED:['Check your pending top-up before paying again.','请先查看待确认的充值记录。'],
@@ -206,7 +214,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       if(pending.redirect_url)main+=action('continue-topup',tr('Continue to Peach','继续前往 Peach'));
     }else if(wallet.topupEnabled)main+=form('topup',field('amount',tr('Top-up amount (ZAR)','充值金额（兰特）'),'number','min="0.01" max="99999999.99" step="0.01" inputmode="decimal" required'),tr('Top up with Peach','使用 Peach 充值'));
     else main+='<p>'+tr('Top-ups will open when Peach activates live payments.','Peach 正式支付开通后即可充值。')+'</p>';
-    main+=action('reload-wallet',tr('Refresh balance','刷新余额'));
+    main+=button('wallet-refunds','Refund to original card','原路退款')+action('reload-wallet',tr('Refresh balance','刷新余额'));
     const rows=wallet.entries.map(item=>{
       if(item.kind==='TEST_CREDIT' || item.kind==='TEST_CREDIT_CHARGE'){
         const issued=item.kind==='TEST_CREDIT';
@@ -214,8 +222,10 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
           ' · '+(issued?'+':'−')+money(Math.abs(item.creditDeltaCents))+'</strong><p>'+esc(item.note)+' · '+esc(new Date(item.createdAt).toLocaleString())+
           (item.operatorReviewCents?' · '+tr('AFE to reconcile','AFE 待核对差额')+' '+money(item.operatorReviewCents):'')+'</p></article>';
       }
-      return '<article class="acct-item"><strong>'+tr(...(item.kind==='TOPUP'?['Top-up','钱包充值']:['Charging','充电消费']))+
+      const ledgerLabels={TOPUP:['Top-up','钱包充值'],CHARGE:['Charging','充电消费'],REFUND:['Refund','原路退款'],REFUND_RELEASE:['Refund returned to wallet','退款金额退回钱包']};
+      return '<article class="acct-item"><strong>'+tr(...(ledgerLabels[item.kind] || ['Wallet activity','钱包流水']))+
       ' · '+(item.deltaCents>=0?'+':'−')+money(Math.abs(item.deltaCents))+'</strong><p>'+esc(new Date(item.createdAt).toLocaleString())+
+      (item.kind==='REFUND'?' · '+refunds.label(item.status):'')+
       (item.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(item.shortfallCents):'')+
       (item.repaidCents?' · '+tr('Applied to outstanding cost','已抵扣欠费')+' '+money(item.repaidCents):'')+'</p></article>';
     }).join('');
@@ -250,6 +260,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     clearTimeout(resendTimer);
     if(page==='orders' && profile)dashboard.enter();else dashboard.leave();
     if(['wallet','station'].includes(page) && profile)void loadWallet();
+    if(page==='wallet-refunds' && profile)refunds.enter();
     if(page==='notifications' && profile)void loadNotifications();
     if(['order-info','home'].includes(page) && profile)void loadOrders();
     if(['register','email-verify','forgot'].includes(page))void checkMail();
@@ -406,6 +417,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       return toProfile+title(tr('Notifications','通知中心'))+card((list.map(n=>'<article class="acct-item"><p>'+esc(notificationText(n))+'</p><small>'+esc(new Date(n.createdAt).toLocaleString())+'</small></article>').join('') || '<p>'+tr('No charging notifications yet.','暂无充电通知。')+'</p>')+
         (notificationError?'<p>'+tr('Notifications could not be loaded.','暂时无法读取通知。')+'</p>':'')+action('reload-notifications',tr('Refresh','刷新')));
     }
+    if(page==='wallet-refunds')return back('wallet',tr('Wallet','钱包'))+title(tr('Refund to original card','原路退款'))+feedback()+refunds.screen();
     if(page==='wallet')return title(tr('Wallet','钱包'))+walletPanel()+card('<h2>'+tr('Payment methods','支付方式')+'</h2>'+
       (cards.length?cards.map(c=>'<article class="acct-item"><p>'+esc(c.brand)+' ···· '+esc(c.last4)+'</p>'+action('unlink',tr('Unlink card','解绑银行卡'),c.id)+'</article>').join(''):
       '<p>'+tr('No linked cards.','尚未绑定银行卡。')+'</p>')+
@@ -457,6 +469,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     working=true;btn.disabled=true;
     const label=btn.textContent;
     if(op==='send-code')btn.textContent=tr('Sending…','正在发送…');
+    if(op==='wallet-refund')btn.textContent=tr('Submitting…','正在提交…');
     try {
       if(op==='bind-card'){
         if(!v.consent)return true;
@@ -467,6 +480,8 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
           rememberCheckout(cardReturnKey,context,{flow:crypto.randomUUID()});
         } catch {}
         location.assign(url.href);
+      }else if(op==='wallet-refund'){
+        await refunds.submit(v.amount);
       }else if(op==='topup'){
         await startTopup(v.amount);
       }else if(op==='send-code'){
@@ -548,6 +563,8 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       if(op==='station-topup'){if(profile && getChargeConnector() && wallet?.topupEnabled && !wallet.pendingTopup)await startTopup('100.00');return;}
       if(op==='reload-notifications'){await loadNotifications();return;}
       if(op==='reload-wallet'){await loadWallet();return;}
+      if(op==='reload-refunds'){await refunds.load();return;}
+      if(op==='select-refund'){refunds.select(id);return;}
       if(op==='continue-topup'){if(wallet?.pendingTopup?.redirect_url){rememberCheckout(topupReturnKey,checkoutContext(),{flow:wallet.pendingTopup.id,reference:wallet.pendingTopup.id});openTopup(wallet.pendingTopup.redirect_url);}return;}
       if(op==='check-topup'){
         try{await api('/me/wallet/top-ups/'+encodeURIComponent(id)+'/refresh','POST',{});}finally{await loadWallet();}
