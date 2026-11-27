@@ -40,7 +40,7 @@
     } catch {}
     return false;
   }
-  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account,getGun:()=>selectedGun(),onStation:()=>page==='station',sessionLocation,gunName});
+  const payments = productionPayments({tr, esc, pair, render, getAccount:()=>account,getGun:()=>selectedGun(),onStation:()=>page==='station',sessionLocation,gunName,navigate});
   const account=driverAccount({root,tr,esc,navigate,render,getPage:()=>page,getPayments:()=>payments,
     getChargeConnector:()=>page==='station' ? connectorKey : '',sessionLocation});
   const priorSession = hasPriorSession();
@@ -193,7 +193,7 @@
     return payments.ongoingOrder() || account.ongoingOrder(payments.closedOrderId());
   }
   async function returnToCharge(id) {
-    const order=homeOrder();
+    const order=page==='orders' && account.dashboardCurrent()?.id===id?account.dashboardCurrent():homeOrder();
     if(!order || order.id!==id)return;
     if(payments.ongoingOrder()?.id!==id){
       await account.act('order',id);
@@ -403,7 +403,7 @@
     }
     syncDriverMap(root,tr,locations,stationSheet.open);
     stationSheet.update();
-    const nav = driverNav(tr,account.handles(page) && !['wallet','orders'].includes(page)?'profile':page);
+    const nav = driverNav(tr,page==='history-detail'?'orders':account.handles(page) && !['wallet','orders'].includes(page)?'profile':page);
     if (lastNav !== nav) { navRoot.innerHTML = nav; lastNav = nav; }
     const gun=selectedGun();
     const dock=document.getElementById('station-action');
@@ -416,6 +416,7 @@
     overlay.hidden=!(page==='station' && payments.isStarting());
     if(!overlay.hidden)overlay.querySelector('strong').textContent=payments.preview.preview()?tr('Starting demo charging…','正在模拟启动充电…'):tr('Submitting start for '+gunName(gun)+'…','正在提交 '+gunName(gun)+' 启动请求…');
     root.closest('.app-root').inert=!overlay.hidden;
+    payments.syncWaitView();
   }
   function navigate(next, push = true) {
     if (!tabPages.has(next) && !account.handles(next) && !['station','report'].includes(next)) return;

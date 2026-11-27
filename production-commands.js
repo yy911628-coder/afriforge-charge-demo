@@ -1,6 +1,6 @@
 'use strict';
 
-function productionCommands({tr, esc, pair, render, password, getOrder, getPayment, targetValid, acceptsStationStatus, sessionLocation, gunName}) {
+function productionCommands({tr, esc, pair, render, password, getOrder, getPayment, targetValid, acceptsStationStatus, sessionLocation, gunName,onStation,onCancelled,toast}) {
   const fields = ['country_code','party_id','location_id','evse_uid','connector_id'];
   const same = (a,b) => targetValid(a) && targetValid(b) && fields.every(key => a[key]===b[key]);
   const isoTime = input => typeof input==='string' && Number.isFinite(Date.parse(input));
@@ -10,7 +10,13 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   const ocpiStates = ['PENDING','ACTIVE','COMPLETED','INVALID','RESERVATION'];
   let capability = null, data = null, busy = false, checkingAccess = false;
   let error = '', poll, socTimer, durationTimer, lastSession=null, sending='', queuedStop=null, uncertain = false, stopUnconfirmed = false;
+  let cancelFlight=null,statusFlight=null,cancelExpected=false,cancelError=false,chargeWon=false,wait=null,waitTimer,openPrompt=null,lastLookup=0;
+  const slowText=()=>tr('The charger is responding slowly. Check that the cable is plugged in. You can keep waiting, or cancel and scan again.','桩端响应较慢，请检查是否已插好枪。您可以继续等待，或取消后重新扫码。');
+  const clockKey='afe.start-wait.'+AFE_BASE_URL;
+  function savedClock(){try{return JSON.parse(sessionStorage.getItem(clockKey));}catch{return null;}}
+  function saveClock(){try{sessionStorage.setItem(clockKey,JSON.stringify(wait));}catch{}}
   function clear() {
+    clearTimeout(waitTimer);dismissPrompt();wait=null;cancelFlight=null;cancelExpected=false;cancelError=false;chargeWon=false;lastLookup=0;
     clearTimeout(poll);clearTimeout(socTimer);clearTimeout(durationTimer);lastSession=null;sending='';queuedStop=null;
     data = null; error = ''; uncertain = false; stopUnconfirmed = false;
   }
@@ -32,8 +38,8 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   const closedStart=()=>data?.wallet?.settlement==='CLOSED_UNCONFIRMED' && !active();
   const declined=result=>!!result && result!=='ACCEPTED' && result!=='TIMEOUT';
   const refused=c=>declined(c?.ack) || declined(c?.callback);
-  const isClosed=()=>!!data && (finalBill() || closedStart() || data.wallet?.settlement==='REJECTED' ||
-    (refused(data.start) && !active() && !finished()));
+  const isClosed=()=>!!data && (data.cancellation==='CANCELLED' || finalBill() || closedStart() || data.wallet?.settlement==='REJECTED' ||
+    (refused(data.start) && data.cancellation!=='REQUESTED' && !active() && !finished()));
   function failureText(code) {
     if(code==='TARGET_RESERVATION_UNVERIFIED')return tr('AFE could not confirm your access to this connector. No start was sent. Ask the site operator to check it.','AFE 尚未确认你的账户可使用这把枪。此次启动指令未发送，请联系场站核对。');
     if(code==='TARGET_RESERVATION_LOOKUP_UNAVAILABLE')return tr('Reservation details are unavailable. Try again.','暂时无法读取桩端预约，请重新查询。');
@@ -43,7 +49,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   }
   function mayStart(gun) {
     const p=getPayment();
-    return data?.canCommand && !uncertain && !data.start && data.session.state==='NOT_STARTED' &&
+    return data?.canCommand && !uncertain && !data.cancellation && !data.start && data.session.state==='NOT_STARTED' &&
       permitsCheckout(data.target) && ((['wallet','card'].includes(getOrder()?.funding) && data.funding===getOrder().funding) ||
       (p?.status==='AUTHORIZED' && p.attemptId===data.attemptId && same(p.target,data.target))) &&
       same(gun,data.target) && gun.standard==='IEC_62196_T2_COMBO' &&
@@ -52,7 +58,8 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   function pollSoon() {
     clearTimeout(poll);
     const waitingForBill=['wallet','card'].includes(data?.funding) && !['SETTLED','REJECTED','PAYMENT_REQUIRED'].includes(data.wallet?.settlement);
-    if (data?.start && !finalBill() && !closedStart() && (!finished() || waitingForBill) && !refused(data.start) && !document.hidden) {
+    if (data?.start && !finalBill() && !closedStart() && data.cancellation!=='CANCELLED' &&
+        (!finished() || waitingForBill) && (!refused(data.start) || active() || data.cancellation==='REQUESTED') && !document.hidden) {
       poll=setTimeout(() => {
         if (document.hidden) return;
         if (document.activeElement?.matches('input,select')) {pollSoon();return;}
@@ -71,11 +78,110 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     } catch { capability=null; }
     finally {checkingAccess=false;render();}
   }
+  function waiting(){
+    return !!data?.start && !isClosed() && !data.stop && !finished() && !chargeWon &&
+      !(lastSession?.status==='ACTIVE' && (!active() || lastSession.kwh>0)) && data.cancellation!=='STARTED' &&
+      !['AWAITING_CDR','PAYMENT_PENDING','PAYMENT_REQUIRED'].includes(data.wallet?.settlement);
+  }
+  function waitClock(){
+    const id=getOrder()?.id;
+    if(wait?.id===id)return wait;
+    const saved=savedClock();
+    wait=saved?.id===id && Number.isFinite(saved.at) && saved.at<=Date.now()?saved:{id,at:Date.now(),prompted:false};
+    saveClock();
+    return wait;
+  }
+  function dismissPrompt(){
+    const dialog=openPrompt;openPrompt=null;
+    if(dialog){dialog.close();dialog.remove();}
+  }
+  function showPrompt(kind){
+    if(!onStation() || !waiting() || !data.canCommand || cancelFlight || data.cancellation==='REQUESTED')return;
+    const order=getOrder();
+    dismissPrompt();
+    const dialog=document.createElement('dialog');openPrompt=dialog;
+    dialog.className='start-cancel-dialog';dialog.setAttribute('aria-labelledby','start-cancel-question');
+    const question=kind==='slow'?slowText():tr('Cancel this start? No fees have been incurred.','确定要取消启动吗？本次未产生费用。');
+    dialog.innerHTML='<h2 id="start-cancel-question"></h2><div><button type="button" data-wait autofocus></button><button type="button" data-cancel></button></div>';
+    dialog.querySelector('h2').textContent=question;
+    const stay=dialog.querySelector('[data-wait]'),cancel=dialog.querySelector('[data-cancel]');
+    stay.textContent=tr('Keep waiting','继续等待');cancel.textContent=tr('Cancel start','取消启动');
+    stay.onclick=dismissPrompt;
+    cancel.onclick=()=>{dismissPrompt();if(getOrder()!==order)return;if(kind==='slow')showPrompt('confirm');else void cancelStart();};
+    dialog.oncancel=event=>{event.preventDefault();dismissPrompt();};
+    document.body.append(dialog);dialog.showModal();
+  }
+  function syncWaitView(){
+    clearTimeout(waitTimer);
+    if(!onStation() || !waiting() || document.hidden || !data.canCommand || cancelFlight || data.cancellation==='REQUESTED'){
+      dismissPrompt();return;
+    }
+    const clock=waitClock(),elapsed=Math.max(0,Date.now()-clock.at);
+    if(elapsed>=180000 && !clock.prompted){
+      clock.prompted=true;
+      saveClock();
+      if(!openPrompt)showPrompt('slow');
+    }else if(elapsed<180000){
+      waitTimer=setTimeout(render,(elapsed<90000?90000:180000)-elapsed);
+    }
+  }
+  function observeCancellation(value){
+    if(chargeWon)return;
+    if(!cancelExpected && value.start){
+      const saved=wait || savedClock();
+      if(saved && saved.id===getOrder()?.id && saved.requested)cancelExpected=true;
+    }
+    if(value.cancellation==='REQUESTED')cancelExpected=true;
+    if(!cancelExpected && !cancelFlight)return;
+    if(finished() && value.cancellation!=='CANCELLED' && value.cancellation!=='REQUESTED'){
+      cancelFlight=null;cancelExpected=false;cancelError=false;dismissPrompt();waitClock().requested=false;saveClock();
+      toast(tr('Charging has ended. Check this order for the final bill.','本次充电已结束，请查看订单账单。'));return;
+    }
+    if(active() || value.cancellation==='STARTED' || (value.session.state==='MATCHED' && value.session.kwh>0)){
+      chargeWon=true;cancelFlight=null;cancelExpected=false;cancelError=false;dismissPrompt();
+      waitClock().requested=false;
+      saveClock();
+      toast(tr('Your vehicle has started charging. The cancellation is no longer valid.','车辆已开始充电，取消请求已失效。'));
+    }else if(value.cancellation==='CANCELLED'){
+      cancelFlight=null;cancelExpected=false;dismissPrompt();waitClock().requested=false;saveClock();
+      toast(tr('Start cancelled','已取消启动'));onCancelled();
+    }
+  }
+  async function cancelStart(){
+    const order=getOrder();
+    if(!order || !waiting() || !data.canCommand || cancelFlight || data.cancellation==='REQUESTED')return;
+    const ticket={order};cancelFlight=ticket;cancelExpected=true;cancelError=false;render();
+    waitClock().requested=true;
+    saveClock();
+    try{
+      const value=await AFEApi.cancelStart(order.pass,data.target);
+      if(cancelFlight!==ticket || getOrder()!==order)return;
+      if(!safeResult(value,order) || !['REQUESTED','STARTED','CANCELLED'].includes(value.cancellation))throw new Error();
+      // Finish any meter read already in flight before accepting a terminal cancellation.
+      if(value.cancellation==='CANCELLED' && statusFlight){
+        await statusFlight;
+        if(cancelFlight!==ticket || getOrder()!==order)return;
+      }
+      if(value.session.state==='MATCHED')lastSession=value.session;
+      data=value;uncertain=false;observeCancellation(value);
+    }catch(e){
+      if(e?.code==='ORDER_ALREADY_ENDED' && cancelFlight===ticket){
+        cancelExpected=false;waitClock().requested=false;saveClock();
+        toast(tr('This order has already ended. Updating its final status.','本单已结束，正在更新最终状态。'));
+      }
+      if(cancelFlight===ticket && getOrder()===order)cancelError=true;
+    }finally{
+      if(cancelFlight===ticket)cancelFlight=null;
+      if(getOrder()===order){render();if(!busy)void query();}
+    }
+  }
   async function query(replacement, storeOriginal) {
     const order=getOrder();
     if (!order || busy || !AFE_BASE_URL) return;
     clearTimeout(poll);
     const pass=replacement || order.pass;
+    let finishRead;
+    const flight=new Promise(done=>{finishRead=done;});statusFlight=flight;
     busy=true; error=''; render();
     try {
       const value=await AFEApi.sessionStatus(pass);
@@ -89,11 +195,15 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
       }
       if (value.session.state==='MATCHED') lastSession=value.session;
       if (value.stop?.ack==='ACCEPTED' || value.stop?.callback==='ACCEPTED') stopUnconfirmed=false;
-      data=value; uncertain=false; pollSoon();window.dispatchEvent(new Event('afe-charge-update'));
+      // A read begun before the cancel POST must not undo an acknowledged cancellation request.
+      if(data?.cancellation==='REQUESTED' && !value.cancellation)value.cancellation='REQUESTED';
+      data=value; uncertain=false;lastLookup=Date.now();observeCancellation(value);pollSoon();window.dispatchEvent(new Event('afe-charge-update'));
       return value;
     } catch(e) {
       if (getOrder()===order) { error=e instanceof ChargeApiError?e.code:'SESSION_STATUS_UNAVAILABLE'; uncertain=true;pollSoon(); }
     } finally {
+      if(statusFlight===flight)statusFlight=null;
+      finishRead();
       busy=false;
       const stop=queuedStop;queuedStop=null;
       if(stop===order && getOrder()===order && active() && !uncertain && !data.stop)void send('stop-charge');
@@ -157,7 +267,8 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     const w=data.wallet || {}, s=lastSession, settled=finalBill();
     const matched=data.session.state==='MATCHED' && !uncertain;
     const ended=settled || finished() || ['AWAITING_CDR','PAYMENT_PENDING','PAYMENT_REQUIRED'].includes(w.settlement);
-    const closed=closedStart(), failed=!ended && !active() && (refused(data.start) || w.settlement==='REJECTED');
+    const cancelled=data.cancellation==='CANCELLED';
+    const closed=closedStart() || cancelled, failed=!ended && !active() && (refused(data.start) || w.settlement==='REJECTED');
     const stopping=!ended && (queuedStop || sending==='stop-charge' || !!data.stop);
     const stopFailed=stopping && (refused(data.stop) || stopUnconfirmed || data.stop?.callback==='TIMEOUT');
     const receiving=matched && active() && Number.isFinite(s?.kwh) && s.kwh>0;
@@ -166,7 +277,8 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     const gun=gunName(data.target) || tr('connector','充电枪');
     const zero=settled && w.energyKwh===0 && w.costCents===0;
     let heading,message='';
-    if(closed){heading=tr('Order closed','订单已关闭');message=tr('The charger did not confirm the start in time. No debit.','桩端启动超时，本次未扣款。');}
+    if(cancelled){heading=tr('Start cancelled','已取消启动');}
+    else if(closed){heading=tr('Order closed','订单已关闭');message=tr('The charger did not confirm the start in time. No debit.','桩端启动超时，本次未扣款。');}
     else if(ended){
       heading=settled?tr('Charging bill','充电账单'):tr('Charging ended','充电已结束');
       if(zero)message=tr('No energy delivered. You were charged R0.00.','本次未充入电量，已扣 R0.00');
@@ -179,7 +291,10 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     else if(stopping){heading=tr('Stopping charging','正在停止充电');message=tr('Waiting for the charger to finish.','正在等待桩端结束');}
     else if(failed){heading=tr('Charging could not start','充电未启动');message=tr('The operator or charger declined the start. Check the charger display.','桩端或运营平台已拒绝启动，请查看桩屏提示。');}
     else if(uncertain || (s?.status==='ACTIVE' && !matched)){heading=tr('Checking charging status','正在核实充电状态');message=tr('Waiting for current readings from the charger.','正在核实桩端最新读数。');}
-    else if(receiving){heading=tr('Charging','正在充电');}
+    else if(receiving || chargeWon || data.cancellation==='STARTED'){
+      heading=tr('Charging','正在充电');
+      if(!receiving)message=tr('Charging has started. Waiting for the first meter reading.','桩端已启动，正在等待首笔电表读数。');
+    }
     else if(confirmed){heading=tr('Waiting for meter readings','等待电表读数');message=tr('The charger accepted the start. Waiting for the meter.','桩端已受理，等待电表读数');}
     else{
       heading=tr('Start submitted for '+gun,'已提交 '+gun+'启动请求');
@@ -189,6 +304,11 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
     }
     const elapsed=Date.now()-Date.parse(data.start.requestedAt);
     const longWait=!closed && !settled && !receiving && (elapsed>=30000 || failed || stopFailed || data.start.callback==='TIMEOUT');
+    const mayCancel=data.canCommand && waiting();
+    const cancelling=!!cancelFlight || data.cancellation==='REQUESTED';
+    if(mayCancel && onStation() && Date.now()-waitClock().at>=90000)message=slowText();
+    if(cancelling && !active())message=tr('Cancellation requested. Waiting for the charger to confirm the result.','已申请取消，正在核对桩端是否已启动。');
+    if(cancelError && mayCancel && !cancelling)message=tr('Could not confirm cancellation. Refresh or try cancelling again.','暂时无法确认取消结果，请刷新状态或重试。');
     const metric=(label,value,unit='')=>'<div><span>'+label+'</span><strong>'+value+(unit?'<small>'+unit+'</small>':'')+'</strong></div>';
     const energy=Number.isFinite(w.energyKwh)?w.energyKwh:s?.kwh;
     const haveReading=ended || receiving || (stopping && matched && s?.kwh>0);
@@ -221,6 +341,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
       (isClosed()?'<button type="button" class="rec-refresh" data-act="rescan-closed">'+tr('Scan again','重新扫码')+'</button>':'')+
       (ended || closed || failed?'<button type="button" class="text-action" data-act="close-payment">'+tr('Done','完成')+'</button>':'')+
       (!isClosed()?button('session-status',tr('Refresh charging status','更新充电状态')):'')+
+      (mayCancel?'<button type="button" class="text-action cancel-start" data-act="cancel-start"'+(cancelling?' disabled aria-busy="true"':'')+'>'+(cancelling?tr('Cancelling...','正在取消...'):tr('Cancel start','取消启动'))+'</button>':'')+
       (!data.canCommand && !ended && !closed && !failed?'<button class="rec-refresh" type="button" data-account="order" data-id="'+esc(getOrder().id)+'">'+tr('Resume charge controls','恢复本次充电操作')+'</button>':'')+'</section>';
   }
   function sessionFooter() {
@@ -283,5 +404,7 @@ function productionCommands({tr, esc, pair, render, password, getOrder, getPayme
   document.addEventListener('visibilitychange',()=>{if (!document.hidden && getOrder() && data?.start) void query();});
   function listed(gun) { return capability?.targets.some(t=>same(t,gun))===true; }
   function permitsCheckout(gun) { return capability?.enabled===true && listed(gun); }
-  return {load,query,send,card,screen,sessionFooter,failureText,lastProblem:()=>failureText(error),clear,permitsCheckout,mayStart,isClosed,hasEvidence:()=>!!data,isBusy:()=>busy,hasStart:()=>!!data?.start};
+  return {load,query,send,card,screen,sessionFooter,failureText,syncWaitView,showCancel:()=>showPrompt('confirm'),
+    pendingRead:()=>statusFlight,recentStatus:id=>!uncertain && data?.attemptId===id && Date.now()-lastLookup<6000?data:null,
+    lastProblem:()=>failureText(error),clear,permitsCheckout,mayStart,isClosed,hasEvidence:()=>!!data,isBusy:()=>busy,hasStart:()=>!!data?.start};
 }

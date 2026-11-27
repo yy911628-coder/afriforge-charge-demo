@@ -1,7 +1,7 @@
 'use strict';
 
 function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getChargeConnector,sessionLocation}) {
-  const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','orders','order-info','notifications']);
+  const protectedPages=new Set(['profile','profile-edit','vehicles','vehicle-new','security','email-verify','password','delete','settings','wallet','orders','order-info','history-detail','notifications']);
   const publicPages=new Set(['login','register','forgot','reset']);
   let profile=null,orders=[],ordersState='',willVisit='',emailHint='',notice='',working=false,ordersLoad=0;
   let wallet=null,walletState='',walletRequest=0;
@@ -39,6 +39,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   }
   if(requested){entry.searchParams.delete('account');history.replaceState(null,'',entry.pathname+entry.search+entry.hash);}
   const api=(path,method,body)=>AFEApi.account(path,method,body);
+  const dashboard=ordersDashboard({tr,esc,render,api,owner:()=>profile?.user.uid,getPage,sessionLocation,getPayments});
   let returnHandled=false;
   function checkoutContext(){
     return {owner:profile?.user.uid,connector:getChargeConnector(),vehicleId:getPayments().vehicle(),
@@ -148,9 +149,9 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       default:return '';
     }
   }
-  function toast(items){
+  function toastText(text){
     const message=document.createElement('aside');message.className='charge-toast';message.setAttribute('role','status');
-    message.textContent=items.map(notificationText).join('\n');document.body.append(message);setTimeout(()=>message.remove(),6500);
+    message.textContent=text;document.body.append(message);setTimeout(()=>message.remove(),6500);
   }
   async function loadNotifications(){
     const uid=profile?.user?.uid;if(!uid || notifying || document.hidden)return;
@@ -161,7 +162,7 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
       const key='afe.notifications.'+AFE_BASE_URL+'.'+uid;
       let seen;try{seen=JSON.parse(localStorage.getItem(key));}catch{}
       const fresh=Array.isArray(seen)?items.filter(x=>!seen.includes(x.id)).reverse():[];
-      if(fresh.length)toast(fresh);
+      if(fresh.length)toastText(fresh.map(notificationText).join('\n'));
       localStorage.setItem(key,JSON.stringify(items.map(x=>x.id)));
       notifications=items;notificationOwner=uid;notificationError=false;
     }catch{notificationError=true;}finally{notifying=false;if(getPage()==='notifications')render();}
@@ -247,9 +248,10 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
   function enter(page){
     notice='';
     clearTimeout(resendTimer);
+    if(page==='orders' && profile)dashboard.enter();else dashboard.leave();
     if(['wallet','station'].includes(page) && profile)void loadWallet();
     if(page==='notifications' && profile)void loadNotifications();
-    if(['orders','order-info','home'].includes(page) && profile)void loadOrders();
+    if(['order-info','home'].includes(page) && profile)void loadOrders();
     if(['register','email-verify','forgot'].includes(page))void checkMail();
   }
   function purposeForPage(){
@@ -418,11 +420,8 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
         (Number.isSafeInteger(order?.costCents)?'<p>'+tr('Final cost','最终费用')+' '+money(order.costCents)+'</p>':'')+
         (target?.location_id==='ZA41020001000001'?'<a class="text-action" href="tel:+27687259103">'+tr('Contact station','联系场站')+' · +27 68 725 9103</a>':'')+feedback());
     }
-    if(page==='orders')return title(tr('Orders','订单'))+(getPayments().hasOrder()?getPayments().card(null):'')+card(
-      (ordersState==='loading'?'<p>'+tr('Loading orders…','正在读取订单…')+'</p>':ordersState==='error'?action('reload-orders',tr('Retry loading orders','重新加载订单')):
-      orders.length?orders.map(o=>'<article class="acct-item"><h2>'+esc(sessionLocation(o.target) || tr('Charging order','充电订单'))+'</h2><p>'+
-      esc(new Date(o.createdAt).toLocaleString())+' · '+(['card','wallet'].includes(o.funding)?(o.funding==='card'?tr('Bank card','银行卡')+(o.last4?' ···· '+esc(o.last4):''):o.useTestCredit?tr('Station test credit','本站试充额度'):tr('Wallet','钱包'))+' · '+(Number.isSafeInteger(o.costCents)?money(o.costCents):o.settlement==='CLOSED_UNCONFIRMED'?tr('Order closed · start timed out','订单已关闭 · 启动超时'):o.settlement==='REJECTED'?tr('Start declined','启动被拒'):o.settlement==='NOT_STARTED'?tr('Awaiting start','待启动'):tr('Awaiting final bill','待结算'))+(o.funding==='card' && o.settlement==='SETTLED'?' · '+tr('Paid','已扣款'):o.settlement==='PAYMENT_REQUIRED'?' · '+tr('Payment due','待支付'):o.settlement==='PAYMENT_PENDING'?' · '+tr('Payment pending','扣款待确认'):'')+(o.lowBalanceStop?' · '+tr('Low-balance stop requested','已请求低余额停充'):'')+(o.operatorReviewCents?' · '+tr('AFE to reconcile','AFE 待核对差额')+' '+money(o.operatorReviewCents):'')+(o.shortfallCents?' · '+tr('Shortfall','本单差额')+' '+money(o.shortfallCents):''):'ZAR '+esc(o.amount))+'</p>'+action('order',tr('View order','查看订单'),o.id)+'</article>').join(''):
-      '<p>'+tr('Your charging orders will appear here.','你的充电订单会显示在这里。')+'</p>')+feedback());
+    if(page==='orders')return dashboard.screen()+feedback();
+    if(page==='history-detail')return dashboard.detail() || back('orders',tr('Orders','订单'));
     return '';
   }
   function chargeControls(walletOnly=false){
@@ -539,6 +538,9 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     await loadWallet();
   }
   async function act(op,id){
+    if(op==='orders-range')return dashboard.load(id);
+    if(op==='orders-more')return dashboard.loadMore();
+    if(op==='history-order' && dashboard.select(id)){navigate('history-detail');return;}
     if(working)return;working=true;
     try{
       if(op==='station-login'){willVisit='station';navigate('login');return;}
@@ -583,6 +585,6 @@ function driverAccount({root,tr,esc,navigate,render,getPage,getPayments,getCharg
     if(next==='login' && profile)next='profile';
     return target(next);
   }
-  return {screen,target,enter,start,submit,act,cardBinding,takeCheckoutReturn,reconcileReturn,loadOrders,ongoingOrder,savedCards:()=>profile?.cards || [],vehicles:()=>profile?.vehicles || [],owner:()=>profile?.user.uid || '',chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
+  return {screen,target,enter,start,submit,act,cardBinding,takeCheckoutReturn,reconcileReturn,loadOrders,ongoingOrder,toastText,dashboardCurrent:dashboard.current,savedCards:()=>profile?.cards || [],vehicles:()=>profile?.vehicles || [],owner:()=>profile?.user.uid || '',chargeControls,wallet:()=>wallet,loadWallet,active:()=>!!profile,hasVehicles:()=>!!profile?.vehicles?.length,
     handles:page=>page==='account-loading'||protectedPages.has(page)||publicPages.has(page)};
 }

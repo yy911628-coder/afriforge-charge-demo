@@ -63,6 +63,7 @@ const AFEApi = (() => {
     paymentStatus: pass => request('/api/payments/status', pass),
     commandCapabilities: () => request('/api/ocpi/command-capabilities'),
     sessionStatus: pass => request('/api/ocpi/session-status', pass),
+    cancelStart: (pass,target) => request('/api/charge/cancel-start',pass,{target}),
     startSession: (pass,target,funded=false) => request(funded?'/api/charge/start':'/api/ocpi/start-session',pass,{target}),
     stopSession: (pass,target) => request('/api/ocpi/stop-session',pass,{target})
   });

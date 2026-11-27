@@ -3,7 +3,7 @@ const AFEAuth = (() => {
   const key='afe.driver.v1.'+AFE_BASE_URL, signedOut=key+'.signed-out', payKey='afe.production.payment.v2.'+AFE_BASE_URL;
   let timer, session;
   function read(store) { try {return JSON.parse(store.getItem(key));} catch {return null;} }
-  function clearPrivate() { try {sessionStorage.removeItem('afe.email-verification.v2.'+AFE_BASE_URL);sessionStorage.removeItem(payKey);sessionStorage.removeItem('afe.intent.'+AFE_BASE_URL);sessionStorage.removeItem('afe.production.payment.v1.'+AFE_BASE_URL);} catch {} }
+  function clearPrivate() { try {sessionStorage.removeItem('afe.email-verification.v2.'+AFE_BASE_URL);sessionStorage.removeItem(payKey);sessionStorage.removeItem('afe.start-wait.'+AFE_BASE_URL);sessionStorage.removeItem('afe.intent.'+AFE_BASE_URL);sessionStorage.removeItem('afe.production.payment.v1.'+AFE_BASE_URL);} catch {} }
   function valid(s) {return typeof s?.token==='string' && /^[\w-]+\.[\w-]+\.[\w-]+$/.test(s.token) && Number.isFinite(s.expiresAt) && s.expiresAt>Date.now();}
   function end() {
     clearTimeout(timer);session=null;clearPrivate();

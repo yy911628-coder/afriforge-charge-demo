@@ -1,6 +1,6 @@
 'use strict';
 
-function productionPayments({tr, esc, pair, render, getAccount, getGun, onStation, sessionLocation, gunName}) {
+function productionPayments({tr, esc, pair, render, getAccount, getGun, onStation, sessionLocation, gunName,navigate}) {
   const passFormat = /^[A-Za-z0-9_-]{43}$/;
   const attemptFormat = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
   const referenceFormat = /^[a-f0-9]{16}$/;
@@ -14,7 +14,12 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
   const preview=stationExperience({tr,esc,render,getAccount,onLinked:id=>{fundingChoice='card';selectedCardId=id;}});
   let current = null, capability = null, receipt = null, busy = false, error = '', checkingAccess = false;
   let capabilityError = '', signedReturnIntent = null, returnEvidence = null;
-  const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid,acceptsStationStatus,sessionLocation,gunName});
+  const commands=productionCommands({tr,esc,pair,render,password,getOrder:()=>current,getPayment:()=>receipt,targetValid,acceptsStationStatus,sessionLocation,gunName,onStation,
+    toast:text=>getAccount().toastText(text),onCancelled(){
+      const leave=onStation();
+      commands.clear();current=null;receipt=null;error='';save();
+      if(leave)navigate('home');else render();
+    }});
 
   function save() {
     try {
@@ -429,11 +434,13 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     if(name==='station-start'){void stationStart(gun);return;}
     if (name === 'payment-status') void checkStatus();
     if (name === 'session-status') void commands.query();
+    if (name === 'cancel-start') commands.showCancel();
     if (name === 'start-charge' || name === 'stop-charge') void commands.send(name,gun);
     if (name === 'close-payment' && !busy && !commands.isBusy()) { commands.clear(); current = null; receipt = null; error = ''; save(); render(); }
   }
   window.addEventListener('pageshow', event => { if (event.persisted && current) void checkStatus(); });
   async function resume(grant){
+    if(commands.pendingRead())await commands.pendingRead();
     if(busy || commands.isBusy())return;
     if(!passFormat.test(grant.pass) || !attemptFormat.test(grant.attemptId) || !targetValid(grant.target))throw new ChargeApiError(502,'PAYMENT_ORDER_MISMATCH');
     commands.clear();receipt=null;current={pass:grant.pass,id:grant.attemptId,target:grant.target,amount:grant.amount,...(['card','wallet'].includes(grant.funding) && {funding:grant.funding,useTestCredit:grant.useTestCredit===true})};
@@ -443,10 +450,10 @@ function productionPayments({tr, esc, pair, render, getAccount, getGun, onStatio
     selectCredit(checked,gun){testCreditChoice=checked && eligibleCredit(gun)?getAccount().owner():'';error='';render();},
     resetCredit(){testCreditChoice='';},
     fundingReady,selectionKey:()=>JSON.stringify([getAccount().owner(),vehicle(),fundingChoice,selectedCardId,testCreditChoice,current?.id]),
-    acceptsStationStatus,footer,preview,vehicle,sessionScreen:commands.screen,sessionFooter:commands.sessionFooter,hasDispatch:commands.hasStart,
+    acceptsStationStatus,footer,preview,vehicle,sessionScreen:commands.screen,sessionFooter:commands.sessionFooter,hasDispatch:commands.hasStart,syncWaitView:commands.syncWaitView,
     chooseVehicle(id){selectedVehicle=id;render();},
     returned(result){syncPreference();fundingChoice=result.funding;selectedVehicle=result.vehicleId || '';if(result.funding==='card')selectedCardId=result.cardId || null;menuOpen=false;cardsOpen=false;rememberFunding();},
-    orderId:()=>current?.id,
+    orderId:()=>current?.id,recentStatus:commands.recentStatus,
     ongoingOrder:()=>current?.target && !commands.isClosed() && (commands.hasStart() || !commands.hasEvidence()) ? current : null,
     closedOrderId:()=>commands.isClosed()?current?.id:null,
     releaseClosed(){if(!commands.isClosed())return false;action('close-payment');return !current;},

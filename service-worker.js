@@ -1,5 +1,5 @@
-const CACHE = "afe-charge-production-v56";
-const CORE = ["./index.html", "./leaflet.js", "./leaflet.css", "./rivonia-map.png", "./account-session.js?v=afe-v56", "./account-ui.js?v=afe-v56", "./account.css?v=afe-v56", "./legal.html", "./config.js?v=afe-v56", "./api.js?v=afe-v56", "./production-commands.js?v=afe-v56", "./station-experience.js?v=afe-v56", "./production-payments.js?v=afe-v56", "./driver-home.js?v=afe-v56", "./driver-tabs.js?v=afe-v56", "./jsQR.js", "./recording.js?v=afe-v56", "./recording.css?v=afe-v56", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
+const CACHE = "afe-charge-production-v57";
+const CORE = ["./index.html", "./leaflet.js", "./leaflet.css", "./rivonia-map.png", "./account-session.js?v=afe-v57", "./orders-dashboard.js?v=afe-v57", "./account-ui.js?v=afe-v57", "./account.css?v=afe-v57", "./legal.html", "./config.js?v=afe-v57", "./api.js?v=afe-v57", "./production-commands.js?v=afe-v57", "./station-experience.js?v=afe-v57", "./production-payments.js?v=afe-v57", "./driver-home.js?v=afe-v57", "./driver-tabs.js?v=afe-v57", "./jsQR.js", "./recording.js?v=afe-v57", "./recording.css?v=afe-v57", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE.map(asset => new Request(asset, {cache:"reload"})))).then(() => self.skipWaiting()));
 });
